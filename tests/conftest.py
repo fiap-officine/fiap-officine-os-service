@@ -1,12 +1,32 @@
-import pytest
-from sqlalchemy import create_engine, StaticPool
-from sqlalchemy.orm import sessionmaker
-from fastapi.testclient import TestClient
-from app.infrastructure.database import Base, get_db
-from app.main import app
+import os
 
+# ── Ambiente de teste: definido ANTES de importar a aplicação ──
+os.environ["NEW_RELIC_LICENSE_KEY"] = ""
+os.environ["RUN_WORKERS"] = "false"
+os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+os.environ["AWS_SESSION_TOKEN"] = "testing"
+os.environ["AWS_DEFAULT_REGION"] = "sa-east-1"
+os.environ["AWS_REGION"] = "sa-east-1"
+os.environ.pop("AWS_ENDPOINT_URL", None)
+os.environ["SQS_WAIT_TIME_SECONDS"] = "0"
+os.environ["INTERNAL_API_TOKEN"] = "token-interno-teste"
+os.environ["BCRYPT_ROUNDS"] = "4"
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from moto import mock_aws  # noqa: E402
+from sqlalchemy import StaticPool, create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+import app.domain.entities  # noqa: E402,F401  (registra todos os modelos)
+from app.config import get_settings  # noqa: E402
+from app.infrastructure.database import Base, get_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.messaging.sqs import SqsBus, set_bus  # noqa: E402
+from app.saga import messages as m  # noqa: E402
+
+SQLALCHEMY_DATABASE_URL = "sqlite://"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
@@ -16,22 +36,43 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def drain_queue(bus: SqsBus, logical: str) -> list[dict]:
+    """Remove (e retorna) todas as mensagens visíveis da fila."""
+    drained = []
+    while True:
+        msgs = bus.receive(logical, wait_seconds=0, max_messages=10)
+        if not msgs:
+            return drained
+        for msg in msgs:
+            bus.delete(logical, msg["ReceiptHandle"])
+        drained.extend(msgs)
+
+
+@pytest.fixture(scope="session")
+def _aws_session():
+    """moto é iniciado uma única vez por sessão (iniciar por teste custa ~2s)."""
+    settings = get_settings()
+    with mock_aws():
+        bus = SqsBus(settings)
+        for logical in (m.BILLING_COMMANDS, m.EXECUTION_COMMANDS, m.OS_REPLIES):
+            bus.client.create_queue(QueueName=settings.queue_name(logical))
+        yield bus
+
+
+@pytest.fixture(autouse=True)
+def sqs_bus(_aws_session):
+    """SQS mockado (moto) com as filas da saga, esvaziadas a cada teste."""
+    bus = _aws_session
+    for logical in (m.BILLING_COMMANDS, m.EXECUTION_COMMANDS, m.OS_REPLIES):
+        drain_queue(bus, logical)
+    set_bus(bus)
+    yield bus
+    set_bus(None)
+
+
 @pytest.fixture(scope="function")
 def db_session():
     """Cria tabelas e fornece uma sessão de teste limpa por teste."""
-
-    from app.domain.entities.usuario import Usuario  # noqa
-    from app.domain.entities.cliente import Cliente  # noqa
-    from app.domain.entities.veiculo import Veiculo  # noqa
-    from app.domain.entities.servico import Servico  # noqa
-    from app.domain.entities.peca import Peca  # noqa
-    from app.domain.entities.ordem_servico import (  # noqa
-        OrdemServico,
-        OrdemServicoServico,
-        OrdemServicoPeca,
-        OrdemServicoHistorico,
-    )
-
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
     try:
@@ -39,6 +80,12 @@ def db_session():
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def session_factory(db_session):
+    """Fábrica de sessões ligada ao mesmo banco em memória (workers/consumer)."""
+    return TestingSessionLocal
 
 
 @pytest.fixture(scope="function")
@@ -60,7 +107,6 @@ def client(db_session):
 @pytest.fixture
 def auth_headers(client):
     """Registra um usuário e retorna headers com token JWT."""
-
     client.post(
         "/api/v1/auth/register",
         json={
@@ -70,7 +116,6 @@ def auth_headers(client):
             "password": "senha12345",
         },
     )
-
     response = client.post(
         "/api/v1/auth/login",
         data={"username": "admin_test", "password": "senha12345"},
@@ -81,7 +126,6 @@ def auth_headers(client):
 
 @pytest.fixture
 def cliente_data():
-    """Dados válidos para criação de cliente."""
     return {
         "nome": "João da Silva",
         "cpf_cnpj": "529.982.247-25",
@@ -93,18 +137,11 @@ def cliente_data():
 
 @pytest.fixture
 def veiculo_data():
-    """Dados válidos para criação de veículo."""
-    return {
-        "placa": "ABC1234",
-        "marca": "Fiat",
-        "modelo": "Uno",
-        "ano": 2020,
-    }
+    return {"placa": "ABC1234", "marca": "Fiat", "modelo": "Uno", "ano": 2020}
 
 
 @pytest.fixture
 def servico_data():
-    """Dados válidos para criação de serviço."""
     return {
         "nome": "Troca de Óleo",
         "descricao": "Troca completa de óleo do motor",
@@ -115,10 +152,8 @@ def servico_data():
 
 @pytest.fixture
 def peca_data():
-    """Dados válidos para criação de peça."""
     return {
         "nome": "Filtro de Óleo",
         "descricao": "Filtro de óleo motor",
         "preco": 35.50,
-        "quantidade_estoque": 50,
     }

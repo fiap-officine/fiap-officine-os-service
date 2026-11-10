@@ -1,5 +1,6 @@
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.domain.entities.usuario import Usuario
 from app.repositories.base import BaseRepository
 

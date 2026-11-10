@@ -1,8 +1,9 @@
-import os
-import sys
-import json
 import base64
+import json
+import os
+
 import yaml
+
 
 def setup_kubeconfig():
     raw = os.environ.get("KUBE_CONFIG_RAW", "").strip()
@@ -13,7 +14,9 @@ def setup_kubeconfig():
     # 1. Limpeza preliminar de aspas externas (JSON/Shell)
     for _ in range(3):
         raw = raw.strip()
-        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        if (raw.startswith('"') and raw.endswith('"')) or (
+            raw.startswith("'") and raw.endswith("'")
+        ):
             try:
                 raw = json.loads(raw)
             except Exception:
@@ -56,7 +59,7 @@ def setup_kubeconfig():
 
     target = os.path.expanduser("~/.kube/config")
     os.makedirs(os.path.dirname(target), exist_ok=True)
-    
+
     with open(target, "w", encoding="utf-8") as f:
         if config_data and isinstance(config_data, dict):
             yaml.safe_dump(config_data, f, default_flow_style=False)
@@ -67,16 +70,17 @@ def setup_kubeconfig():
 
     # Diagnostico das primeiras linhas
     try:
-        with open(target, "r", encoding="utf-8") as f:
+        with open(target, encoding="utf-8") as f:
             first_lines = [line.strip() for line in f.readlines()[:6]]
         print("Primeiras linhas do kubeconfig gerado:")
-        for l in first_lines:
-            if "token" in l.lower() or "certificate" in l.lower():
-                print("  " + l.split(":")[0] + ": [MASKED]")
+        for linha in first_lines:
+            if "token" in linha.lower() or "certificate" in linha.lower():
+                print("  " + linha.split(":")[0] + ": [MASKED]")
             else:
-                print("  " + l)
+                print("  " + linha)
     except Exception:
         pass
+
 
 if __name__ == "__main__":
     setup_kubeconfig()

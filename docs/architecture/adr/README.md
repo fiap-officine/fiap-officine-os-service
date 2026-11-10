@@ -16,6 +16,8 @@ Contexto, Decisão, Consequências e Alternativas consideradas.
 | [ADR-003](ADR-003-api-gateway-auth-serverless.md) | API Gateway como entrada única e autenticação serverless | Aceito |
 | [ADR-004](ADR-004-repositorios-cicd.md) | Segregação em quatro repositórios com CI/CD independente | Aceito |
 | [ADR-005](ADR-005-banco-gerenciado.md) | Banco de dados gerenciado desacoplado do cluster | Aceito |
+| [ADR-006](ADR-006-microsservicos-saga-orquestrada.md) | Microsserviços com Saga orquestrada (Fase 4) | Aceito |
+| [ADR-007](ADR-007-sqs-dynamodb-banco-por-servico.md) | SQS como broker, DynamoDB no Execution e banco por serviço (Fase 4) | Aceito |
 
 ## Convenção de status
 

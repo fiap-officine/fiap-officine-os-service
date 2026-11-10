@@ -1,6 +1,7 @@
-from pydantic import BaseModel, field_validator
 from datetime import datetime
 from decimal import Decimal
+
+from pydantic import BaseModel, field_validator
 
 
 class ServicoBase(BaseModel):

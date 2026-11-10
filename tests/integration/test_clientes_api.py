@@ -1,6 +1,3 @@
-from unittest.mock import patch
-
-
 class TestClientesAPI:
     def test_criar_cliente(self, client, auth_headers, cliente_data):
         response = client.post(
@@ -111,9 +108,8 @@ class TestClientesAPI:
         )
         assert response.status_code == 404
 
-    @patch("app.services.ordem_servico_service.publicar_notificacao")
     def test_desativar_cliente_com_os_em_aberto(
-        self, mock_redis, client, auth_headers, cliente_data
+        self, client, auth_headers, cliente_data
     ):
         create_resp = client.post(
             "/api/v1/clientes/", json=cliente_data, headers=auth_headers
@@ -133,9 +129,18 @@ class TestClientesAPI:
         )
         veiculo_id = resp.json()["id"]
 
+        servico_id = client.post(
+            "/api/v1/servicos/",
+            json={"nome": "Revisão", "preco": 100.0, "tempo_estimado_minutos": 60},
+            headers=auth_headers,
+        ).json()["id"]
         client.post(
             "/api/v1/ordens-servico/",
-            json={"cliente_id": cliente_id, "veiculo_id": veiculo_id},
+            json={
+                "cliente_id": cliente_id,
+                "veiculo_id": veiculo_id,
+                "itens_servico": [{"servico_id": servico_id}],
+            },
             headers=auth_headers,
         )
 

@@ -1,18 +1,10 @@
 import json
 import logging
 from unittest.mock import MagicMock, patch
-import pytest
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.logging import JSONLogFormatter, correlation_id_ctx
-
-
-from unittest.mock import MagicMock, patch
-import pytest
-from app.main import app
 from app.infrastructure.database import get_db
-from app.core.logging import JSONLogFormatter, correlation_id_ctx
+from app.main import app
 
 
 class TestJSONLogFormatter:
@@ -61,9 +53,7 @@ class TestObservabilityMiddleware:
 
 
 class TestHealthEndpoint:
-    @patch("app.api.v1.health.redis_client.ping")
-    def test_health_check_operational(self, mock_ping, client):
-        mock_ping.return_value = True
+    def test_health_check_operational(self, client):
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
@@ -72,18 +62,23 @@ class TestHealthEndpoint:
         assert "services" in data
         assert "database" in data["services"]
         assert data["services"]["database"]["status"] == "up"
+        assert data["services"]["messaging"]["status"] == "up"
+        assert data["services"]["outbox"]["pending"] == 0
 
-    @patch("app.api.v1.health.redis_client.ping")
-    def test_health_api_prefixed(self, mock_ping, client):
-        mock_ping.return_value = True
+    def test_health_messaging_down_nao_derruba(self, client):
+        with patch("app.api.v1.health.get_bus") as get_bus:
+            get_bus.return_value.ping.side_effect = Exception("SQS indisponível")
+            response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["services"]["messaging"]["status"] == "down"
+
+    def test_health_api_prefixed(self, client):
         response = client.get("/api/v1/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
 
-    @patch("app.api.v1.health.redis_client.ping")
-    def test_health_check_database_failure(self, mock_ping, client):
-        mock_ping.return_value = True
+    def test_health_check_database_failure(self, client):
 
         def failing_db():
             mock_db = MagicMock()
@@ -99,4 +94,3 @@ class TestHealthEndpoint:
             assert data["services"]["database"]["status"] == "down"
         finally:
             app.dependency_overrides.pop(get_db, None)
-

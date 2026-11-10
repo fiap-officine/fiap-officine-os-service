@@ -1,5 +1,6 @@
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.domain.entities.veiculo import Veiculo
 from app.repositories.base import BaseRepository
 

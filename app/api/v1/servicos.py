@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from app.infrastructure.database import get_db
-from app.schemas.servico import ServicoCreate, ServicoUpdate, ServicoResponse
-from app.services import servico_service
+
 from app.api.deps import get_current_user
+from app.infrastructure.database import get_db
+from app.schemas.servico import ServicoCreate, ServicoResponse, ServicoUpdate
+from app.services import servico_service
 
 router = APIRouter(prefix="/servicos", tags=["Serviços"])
 

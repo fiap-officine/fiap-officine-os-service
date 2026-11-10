@@ -1,8 +1,9 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
 from app.domain.entities.veiculo import Veiculo
-from app.repositories.veiculo_repository import VeiculoRepository
 from app.repositories.cliente_repository import ClienteRepository
+from app.repositories.veiculo_repository import VeiculoRepository
 from app.schemas.veiculo import VeiculoCreate, VeiculoUpdate
 
 

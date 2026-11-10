@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+configMapGenerator:
+  - name: os-service-config
+    behavior: merge
+    literals:
+      - APP_ENV=production
+      # Substituir pelo endpoint do RDS de produção (output rds_address do
+      # repositório fiap-officine-database)
+      - DB_HOST=fiap-officine-production-rds.REPLACE_ME.sa-east-1.rds.amazonaws.com
+      - SQS_QUEUE_PREFIX=fiap-officine-production
+
+patches:
+  - target: { kind: HorizontalPodAutoscaler, name: os-service }
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 6
+  - target: { kind: Deployment, name: os-service }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2

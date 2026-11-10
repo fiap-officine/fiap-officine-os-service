@@ -1,12 +1,14 @@
-from pydantic import BaseModel
 from datetime import datetime
 from decimal import Decimal
+
+from pydantic import BaseModel, Field
+
 from app.domain.enums import StatusOrdemServico
 
 
 class ItemServicoCreate(BaseModel):
     servico_id: int
-    quantidade: int = 1
+    quantidade: int = Field(1, ge=1)
 
 
 class ItemServicoResponse(BaseModel):
@@ -21,7 +23,7 @@ class ItemServicoResponse(BaseModel):
 
 class ItemPecaCreate(BaseModel):
     peca_id: int
-    quantidade: int = 1
+    quantidade: int = Field(1, ge=1)
 
 
 class ItemPecaResponse(BaseModel):
@@ -56,19 +58,40 @@ class OrdemServicoUpdate(BaseModel):
     observacoes: str | None = None
 
 
-class AlterarStatusRequest(BaseModel):
-    novo_status: StatusOrdemServico
-    observacao: str | None = None
+class CancelarOrdemRequest(BaseModel):
+    motivo: str | None = None
 
 
-class AdicionarItemServicoRequest(BaseModel):
-    servico_id: int
-    quantidade: int = 1
+class SagaStepResponse(BaseModel):
+    id: int
+    step: str
+    direction: str
+    message_type: str | None
+    message_id: str | None
+    detail: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
-class AdicionarItemPecaRequest(BaseModel):
-    peca_id: int
-    quantidade: int = 1
+class SagaResponse(BaseModel):
+    id: str
+    os_id: int
+    state: str
+    deadline_at: datetime | None
+    orcamento_id: int | None
+    pagamento_id: int | None
+    checkout_url: str | None
+    payment_confirmed: bool
+    reserved: bool
+    pending_compensations: list[str]
+    compensation_attempts: int
+    failure_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+    steps: list[SagaStepResponse]
+
+    model_config = {"from_attributes": True}
 
 
 class OrdemServicoResponse(BaseModel):
@@ -78,7 +101,6 @@ class OrdemServicoResponse(BaseModel):
     status: StatusOrdemServico
     observacoes: str | None
     valor_total: Decimal
-    orcamento_aprovado: bool
     created_at: datetime
     updated_at: datetime
     data_finalizacao: datetime | None

@@ -1,7 +1,7 @@
 [project]
-name = "fiaptech"
-version = "0.1.0"
-description = "Add your description here"
+name = "fiap-officine-os-service"
+version = "2.0.0"
+description = "OS Service: ordens de serviço e orquestrador da saga (Tech Challenge SOAT Fase 4)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,7 +9,6 @@ dependencies = [
     "bcrypt<4.0.0",
     "fastapi>=0.136.1",
     "passlib>=1.7.4",
-    "psycopg2>=2.9.12",
     "psycopg[binary]>=3.3.3",
     "pydantic-settings>=2.14.0",
     "pydantic[email]>=2.13.3",
@@ -17,18 +16,20 @@ dependencies = [
     "python-jose>=3.5.0",
     "newrelic>=9.0.0",
     "python-multipart>=0.0.26",
-    "redis>=7.4.0",
-    "ruff>=0.15.21",
     "sqlalchemy>=2.0.49",
     "uvicorn>=0.46.0",
     "pyyaml>=6.0.3",
+    "boto3>=1.35",
 ]
 
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "moto[dynamodb,sqs]>=5.0",
     "pytest>=9.0.3",
+    "pytest-bdd>=8.0",
     "pytest-cov>=7.1.0",
+    "ruff>=0.15",
 ]
 
 
@@ -37,22 +38,31 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --cov=app --cov-report=term-missing --cov-report=html"
+addopts = "-q --tb=short -p no:cacheprovider --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80"
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["app/worker.py", "app/infrastructure/redis_client.py"]
+branch = true
+relative_files = true
 
 [tool.coverage.report]
 exclude_lines = [
     "pragma: no cover",
-    "if __name__",
-    "pass",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
 ]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B008", "UP017", "UP042", "UP046"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B017"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

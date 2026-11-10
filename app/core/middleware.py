@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -37,6 +38,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         # Injeta atributos no agente New Relic (se ativo)
         try:
             import newrelic.agent
+
             newrelic.agent.add_custom_attribute("correlation_id", correlation_id)
             newrelic.agent.add_custom_attribute("request_id", request_id)
             newrelic.agent.add_custom_attribute("http_method", request.method)
@@ -65,6 +67,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             # Notifica New Relic sobre a exceção
             try:
                 import newrelic.agent
+
                 newrelic.agent.record_exception()
             except Exception:
                 pass

@@ -1,21 +1,25 @@
 from logging.config import fileConfig
+
 from sqlalchemy import engine_from_config, pool
+
 from alembic import context
-from app.infrastructure.database import Base
 from app.config import get_settings
+from app.domain.entities.cliente import Cliente  # noqa
+from app.domain.entities.messaging import OutboxMessage, ProcessedMessage  # noqa
+from app.domain.entities.ordem_servico import (  # noqa
+    OrdemServico,
+    OrdemServicoHistorico,
+    OrdemServicoPeca,
+    OrdemServicoServico,
+)
+from app.domain.entities.peca import Peca  # noqa
+from app.domain.entities.saga import SagaInstance, SagaLog  # noqa
+from app.domain.entities.servico import Servico  # noqa
 
 # Importar todos os modelos para que o Alembic os detecte
 from app.domain.entities.usuario import Usuario  # noqa
-from app.domain.entities.cliente import Cliente  # noqa
 from app.domain.entities.veiculo import Veiculo  # noqa
-from app.domain.entities.servico import Servico  # noqa
-from app.domain.entities.peca import Peca  # noqa
-from app.domain.entities.ordem_servico import (  # noqa
-    OrdemServico,
-    OrdemServicoServico,
-    OrdemServicoPeca,
-    OrdemServicoHistorico,
-)
+from app.infrastructure.database import Base
 
 config = context.config
 

@@ -233,3 +233,13 @@ terraform.rc
 *.sqlite
 *.sqlite3
 
+
+# Segredos nunca versionados (gerados no pipeline)
+k8s/secret.yaml
+k8s/**/secret*.yaml
+!k8s/**/secret*.example.yaml
+coverage.xml
+
+# tfvars por ambiente (sem segredos), usados pelo workflow infra.yml.
+# O padrão ENV/ acima os ignoraria em sistemas case-insensitive.
+!infra/env/

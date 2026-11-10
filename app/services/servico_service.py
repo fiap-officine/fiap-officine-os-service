@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
 from app.domain.entities.servico import Servico
 from app.repositories.servico_repository import ServicoRepository
 from app.schemas.servico import ServicoCreate, ServicoUpdate

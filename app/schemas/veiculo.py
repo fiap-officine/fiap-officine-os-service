@@ -1,6 +1,8 @@
-from pydantic import BaseModel, field_validator
 from datetime import datetime
-from app.domain.validators import validar_placa, formatar_placa
+
+from pydantic import BaseModel, field_validator
+
+from app.domain.validators import formatar_placa, validar_placa
 
 
 class VeiculoBase(BaseModel):

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from app.infrastructure.database import get_db
-from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteResponse
-from app.services import cliente_service
-from app.api.deps import get_current_user, get_current_cliente
+
+from app.api.deps import get_current_cliente, get_current_user
 from app.domain.entities.cliente import Cliente
+from app.infrastructure.database import get_db
+from app.schemas.cliente import ClienteCreate, ClienteResponse, ClienteUpdate
+from app.services import cliente_service
 
 router = APIRouter(prefix="/clientes", tags=["Clientes"])
 

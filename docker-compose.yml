@@ -1,63 +1,63 @@
+# Ambiente local do OS Service: PostgreSQL (os_db) + LocalStack (SQS).
+# Para subir os 3 microsserviços juntos, use o repositório fiap-officine-e2e.
 services:
   db:
-    image: postgres:16-alpine 
-    container_name: oficina_db
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: fiaptech
-      POSTGRES_PASSWORD: fiaptech123
-      POSTGRES_DB: oficina_db
+      POSTGRES_USER: os_service
+      POSTGRES_PASSWORD: os_service
+      POSTGRES_DB: os_db
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - os_db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fiaptech -d oficina_db"]
+      test: ["CMD-SHELL", "pg_isready -U os_service -d os_db"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  redis:
-    image: redis:7-alpine
-    container_name: oficina_redis
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: sa-east-1
+      SQS_QUEUE_PREFIX: fiap-officine
     ports:
-      - "6379:6379"
+      - "4566:4566"
+    volumes:
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name fiap-officine-os-saga-replies --region sa-east-1"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 20
 
-  api:
+  os-service:
     build: .
-    image: gddarkness/fiap-oficina:latest
-    container_name: oficina_api
     ports:
       - "8000:8000"
-    env_file:
-      - .env
+    environment:
+      DB_HOST: db
+      DB_USER: os_service
+      DB_PASSWORD: os_service
+      DB_NAME: os_db
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SQS_QUEUE_PREFIX: fiap-officine
+      RUN_WORKERS: "true"
+      APP_ENV: development
+      JWT_SECRET_KEY: dev-secret-compartilhado-entre-servicos
+      INTERNAL_API_TOKEN: dev-internal-token
+      SAGA_PAYMENT_TIMEOUT_SECONDS: "120"
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      localstack:
         condition: service_healthy
-    command: >
-      uv run sh -c "alembic upgrade head &&
-                    uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
-    volumes:
-      - .:/app
-
-  worker:
-    build: .
-    image: gddarkness/fiap-oficina:latest
-    container_name: oficina_worker
-    env_file:
-      - .env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: uv run python -m app.worker
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
-  postgres_data:
+  os_db_data:

@@ -1,19 +1,25 @@
-from fastapi import APIRouter, Depends, Query, Body
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+
+from app.api.deps import (
+    get_current_actor,
+    get_current_cliente,
+    get_current_user,
+    get_optional_cliente,
+)
+from app.domain.entities.cliente import Cliente
+from app.domain.entities.usuario import Usuario
+from app.domain.enums import StatusOrdemServico
 from app.infrastructure.database import get_db
 from app.schemas.ordem_servico import (
+    CancelarOrdemRequest,
     OrdemServicoCreate,
     OrdemServicoResponse,
     OrdemServicoResumo,
-    AlterarStatusRequest,
-    AdicionarItemServicoRequest,
-    AdicionarItemPecaRequest,
+    SagaResponse,
     TempoMedioResponse,
 )
-from app.domain.enums import StatusOrdemServico
 from app.services import ordem_servico_service
-from app.api.deps import get_current_user, get_current_cliente, get_optional_cliente
-from app.domain.entities.cliente import Cliente
 
 router = APIRouter(prefix="/ordens-servico", tags=["Ordens de Serviço"])
 
@@ -25,7 +31,8 @@ router = APIRouter(prefix="/ordens-servico", tags=["Ordens de Serviço"])
     dependencies=[Depends(get_current_user)],
 )
 def criar_ordem_servico(dados: OrdemServicoCreate, db: Session = Depends(get_db)):
-    """Cria uma nova ordem de serviço com orçamento automático."""
+    """Abre a OS e inicia a saga: o comando `GerarOrcamento` é gravado no outbox
+    na mesma transação e publicado para o Billing Service."""
     return ordem_servico_service.criar_ordem_servico(db, dados)
 
 
@@ -42,7 +49,7 @@ def listar_ordens_servico(
         False, description="Ordenar por prioridade de status"
     ),
     exclude_finalizados: bool = Query(
-        True, description="Excluir ordens finalizadas/entregues"
+        True, description="Excluir ordens finalizadas/entregues/canceladas"
     ),
     db: Session = Depends(get_db),
 ):
@@ -67,10 +74,7 @@ def tempo_medio_execucao(db: Session = Depends(get_db)):
     return ordem_servico_service.obter_tempo_medio(db)
 
 
-@router.get(
-    "/minhas-ordens",
-    response_model=list[OrdemServicoResumo],
-)
+@router.get("/minhas-ordens", response_model=list[OrdemServicoResumo])
 def listar_minhas_ordens(
     current_cliente: Cliente = Depends(get_current_cliente),
     db: Session = Depends(get_db),
@@ -79,18 +83,13 @@ def listar_minhas_ordens(
     return ordem_servico_service.buscar_ordens_por_cliente(db, current_cliente.id)
 
 
-@router.get(
-    "/acompanhar-cliente/{os_id}",
-    response_model=OrdemServicoResponse,
-)
+@router.get("/acompanhar-cliente/{os_id}", response_model=OrdemServicoResponse)
 def acompanhar_os_cliente(
     os_id: int,
     current_cliente: Cliente = Depends(get_current_cliente),
     db: Session = Depends(get_db),
 ):
-    """Permite ao cliente autenticado via CPF acompanhar sua ordem de serviço com segurança."""
-    from fastapi import HTTPException
-
+    """Permite ao cliente autenticado via CPF acompanhar sua ordem de serviço."""
     ordem = ordem_servico_service.buscar_ordem_servico(db, os_id)
     if ordem.cliente_id != current_cliente.id:
         raise HTTPException(
@@ -99,7 +98,6 @@ def acompanhar_os_cliente(
     return ordem
 
 
-# Endpoint para acompanhamento pelo cliente (suporta token JWT ou query param para compatibilidade)
 @router.get("/acompanhar/{os_id}", response_model=OrdemServicoResponse)
 def acompanhar_ordem_servico(
     os_id: int,
@@ -107,14 +105,11 @@ def acompanhar_ordem_servico(
     current_cliente: Cliente | None = Depends(get_optional_cliente),
     db: Session = Depends(get_db),
 ):
-    """Permite ao cliente acompanhar o andamento da OS via token JWT (CPF) ou query param."""
+    """Acompanhamento da OS via token JWT (CPF) ou query param."""
     from app.domain.validators import formatar_cpf_cnpj
-    from fastapi import HTTPException
-    from app.repositories.cliente_repository import ClienteRepository
 
     ordem = ordem_servico_service.buscar_ordem_servico(db, os_id)
-    cliente_repo = ClienteRepository(db)
-    cliente = cliente_repo.get_by_id(ordem.cliente_id)
+    cliente = ordem.cliente
 
     if current_cliente:
         if not cliente or cliente.id != current_cliente.id:
@@ -124,8 +119,7 @@ def acompanhar_ordem_servico(
         return ordem
 
     if cpf_cnpj:
-        cpf_cnpj_limpo = formatar_cpf_cnpj(cpf_cnpj)
-        if not cliente or cliente.cpf_cnpj != cpf_cnpj_limpo:
+        if not cliente or cliente.cpf_cnpj != formatar_cpf_cnpj(cpf_cnpj):
             raise HTTPException(
                 status_code=403, detail="CPF/CNPJ não corresponde ao cliente desta OS"
             )
@@ -139,6 +133,16 @@ def acompanhar_ordem_servico(
 
 
 @router.get(
+    "/cliente/{cliente_id}",
+    response_model=list[OrdemServicoResumo],
+    dependencies=[Depends(get_current_user)],
+)
+def buscar_ordens_por_cliente(cliente_id: int, db: Session = Depends(get_db)):
+    """Lista ordens de serviço de um cliente específico."""
+    return ordem_servico_service.buscar_ordens_por_cliente(db, cliente_id)
+
+
+@router.get(
     "/{os_id}",
     response_model=OrdemServicoResponse,
     dependencies=[Depends(get_current_user)],
@@ -149,152 +153,35 @@ def buscar_ordem_servico(os_id: int, db: Session = Depends(get_db)):
 
 
 @router.get(
-    "/cliente/{cliente_id}",
-    response_model=list[OrdemServicoResumo],
+    "/{os_id}/saga",
+    response_model=SagaResponse,
     dependencies=[Depends(get_current_user)],
 )
-def buscar_ordens_por_cliente(cliente_id: int, db: Session = Depends(get_db)):
-    """Lista ordens de serviço de um cliente específico."""
-    return ordem_servico_service.buscar_ordens_por_cliente(db, cliente_id)
+def consultar_saga(os_id: int, db: Session = Depends(get_db)):
+    """Estado da saga da OS: passo atual, prazo, compensações pendentes e a
+    linha do tempo de comandos/respostas."""
+    return ordem_servico_service.buscar_saga(db, os_id)
 
 
-@router.patch(
-    "/{os_id}/status",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def alterar_status(
-    os_id: int, dados: AlterarStatusRequest, db: Session = Depends(get_db)
-):
-    """Altera o status da ordem de serviço seguindo as transições válidas."""
-    if dados.novo_status == StatusOrdemServico.EM_DIAGNOSTICO:
-        return ordem_servico_service.iniciar_diagnostico(db, os_id, dados.observacao)
-    elif dados.novo_status == StatusOrdemServico.AGUARDANDO_APROVACAO:
-        return ordem_servico_service.enviar_orcamento(db, os_id, dados.observacao)
-    elif dados.novo_status == StatusOrdemServico.EM_EXECUCAO:
-        return ordem_servico_service.iniciar_execucao(db, os_id, dados.observacao)
-    elif dados.novo_status == StatusOrdemServico.FINALIZADA:
-        return ordem_servico_service.finalizar_os(db, os_id, dados.observacao)
-    elif dados.novo_status == StatusOrdemServico.ENTREGUE:
-        return ordem_servico_service.entregar_veiculo(db, os_id, dados.observacao)
-
-    return ordem_servico_service.alterar_status(
-        db, os_id, dados.novo_status, dados.observacao
-    )
-
-
-@router.post(
-    "/{os_id}/servicos",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def adicionar_servico(
-    os_id: int, dados: AdicionarItemServicoRequest, db: Session = Depends(get_db)
-):
-    """Adiciona um serviço à ordem de serviço (recalcula o orçamento)."""
-    return ordem_servico_service.adicionar_servico_os(
-        db, os_id, dados.servico_id, dados.quantidade
-    )
-
-
-@router.post(
-    "/{os_id}/pecas",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def adicionar_peca(
-    os_id: int, dados: AdicionarItemPecaRequest, db: Session = Depends(get_db)
-):
-    """Adiciona uma peça à ordem de serviço (sem baixar estoque imediatamente)."""
-    return ordem_servico_service.adicionar_peca_os(
-        db, os_id, dados.peca_id, dados.quantidade
-    )
-
-
-@router.delete(
-    "/{os_id}/servicos/{item_servico_id}",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def remover_servico(os_id: int, item_servico_id: int, db: Session = Depends(get_db)):
-    """Remove um serviço da ordem de serviço e recalcula o orçamento."""
-    return ordem_servico_service.remover_servico_os(db, os_id, item_servico_id)
-
-
-@router.delete(
-    "/{os_id}/pecas/{item_peca_id}",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def remover_peca(os_id: int, item_peca_id: int, db: Session = Depends(get_db)):
-    """Remove uma peça da ordem de serviço e devolve ao estoque se a OS já estiver em execução."""
-    return ordem_servico_service.remover_peca_os(db, os_id, item_peca_id)
-
-
-@router.post(
-    "/{os_id}/iniciar-diagnostico",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def iniciar_diagnostico(
+@router.post("/{os_id}/cancelar", response_model=OrdemServicoResponse)
+def cancelar_ordem_servico(
     os_id: int,
-    observacao: str | None = Body(None, embed=True),
+    dados: CancelarOrdemRequest | None = None,
+    actor: tuple[Usuario | None, Cliente | None] = Depends(get_current_actor),
     db: Session = Depends(get_db),
 ):
-    """Inicia o diagnóstico da ordem de serviço."""
-    return ordem_servico_service.iniciar_diagnostico(db, os_id, observacao)
-
-
-@router.post(
-    "/{os_id}/enviar-orcamento",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def enviar_orcamento(
-    os_id: int,
-    observacao: str | None = Body(None, embed=True),
-    db: Session = Depends(get_db),
-):
-    """Envia o orçamento para aprovação do cliente."""
-    return ordem_servico_service.enviar_orcamento(db, os_id, observacao)
-
-
-@router.post(
-    "/{os_id}/aprovar-orcamento",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def aprovar_orcamento(os_id: int, db: Session = Depends(get_db)):
-    """Aprova o orçamento e reserva as peças no estoque."""
-    return ordem_servico_service.aprovar_orcamento(db, os_id)
-
-
-@router.post(
-    "/{os_id}/iniciar-execucao",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def iniciar_execucao(
-    os_id: int,
-    observacao: str | None = Body(None, embed=True),
-    db: Session = Depends(get_db),
-):
-    """Inicia a execução dos serviços (requer orçamento aprovado)."""
-    return ordem_servico_service.iniciar_execucao(db, os_id, observacao)
-
-
-@router.post(
-    "/{os_id}/finalizar",
-    response_model=OrdemServicoResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def finalizar_os(
-    os_id: int,
-    observacao: str | None = Body(None, embed=True),
-    db: Session = Depends(get_db),
-):
-    """Finaliza a execução da ordem de serviço."""
-    return ordem_servico_service.finalizar_os(db, os_id, observacao)
+    """Cancela a OS disparando as compensações da saga (liberar reserva ->
+    estornar pagamento -> cancelar orçamento). Não é permitido após o início do
+    reparo (pivô). Cliente só pode cancelar a própria OS."""
+    _, cliente = actor
+    if cliente is not None:
+        ordem = ordem_servico_service.buscar_ordem_servico(db, os_id)
+        if ordem.cliente_id != cliente.id:
+            raise HTTPException(
+                status_code=403, detail="Você não tem permissão para cancelar esta OS"
+            )
+    motivo = dados.motivo if dados else None
+    return ordem_servico_service.cancelar_ordem_servico(db, os_id, motivo)
 
 
 @router.post(
@@ -307,5 +194,5 @@ def entregar_veiculo(
     observacao: str | None = Body(None, embed=True),
     db: Session = Depends(get_db),
 ):
-    """Entrega o veículo ao cliente."""
+    """Entrega o veículo ao cliente (ação local, após a saga concluir)."""
     return ordem_servico_service.entregar_veiculo(db, os_id, observacao)

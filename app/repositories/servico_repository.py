@@ -1,5 +1,6 @@
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.domain.entities.servico import Servico
 from app.repositories.base import BaseRepository
 

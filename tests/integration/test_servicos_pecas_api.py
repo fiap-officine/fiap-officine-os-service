@@ -1,6 +1,3 @@
-from unittest.mock import patch
-
-
 class TestServicosAPI:
     def test_criar_servico(self, client, auth_headers, servico_data):
         response = client.post(
@@ -69,7 +66,7 @@ class TestPecasAPI:
         assert response.status_code == 201
         data = response.json()
         assert data["nome"] == "Filtro de Óleo"
-        assert data["quantidade_estoque"] == 50
+        assert "quantidade_estoque" not in data  # estoque no Execution Service
 
     def test_listar_pecas(self, client, auth_headers, peca_data):
         client.post("/api/v1/pecas/", json=peca_data, headers=auth_headers)
@@ -77,18 +74,18 @@ class TestPecasAPI:
         assert response.status_code == 200
         assert len(response.json()) >= 1
 
-    def test_atualizar_estoque(self, client, auth_headers, peca_data):
+    def test_atualizar_preco(self, client, auth_headers, peca_data):
         create_resp = client.post(
             "/api/v1/pecas/", json=peca_data, headers=auth_headers
         )
         peca_id = create_resp.json()["id"]
         response = client.put(
             f"/api/v1/pecas/{peca_id}",
-            json={"quantidade_estoque": 100},
+            json={"preco": 40.0},
             headers=auth_headers,
         )
         assert response.status_code == 200
-        assert response.json()["quantidade_estoque"] == 100
+        assert float(response.json()["preco"]) == 40.0
 
     def test_desativar_peca(self, client, auth_headers, peca_data):
         create_resp = client.post(
@@ -142,80 +139,17 @@ class TestPecasAPI:
         ids = [p["id"] for p in response.json()]
         assert peca_id in ids
 
-    @patch("app.services.peca_service.publicar_notificacao")
-    def test_ajustar_quantidade_peca(self, mock_pub, client, auth_headers, peca_data):
-        create_resp = client.post(
+    def test_endpoint_de_estoque_removido(self, client, auth_headers, peca_data):
+        """Entrada de estoque agora é PUT /api/v1/estoque/{peca_id} no Execution."""
+        peca_id = client.post(
             "/api/v1/pecas/", json=peca_data, headers=auth_headers
-        )
-        peca_id = create_resp.json()["id"]
+        ).json()["id"]
         response = client.patch(
             f"/api/v1/pecas/{peca_id}/quantidade",
             json={"quantidade_entrada": 10},
             headers=auth_headers,
         )
-        assert response.status_code == 200
-        assert response.json()["quantidade_estoque"] == 60
-
-    @patch("app.services.peca_service.publicar_notificacao")
-    def test_ajustar_quantidade_com_alerta_estoque(
-        self, mock_pub, client, auth_headers
-    ):
-        create_resp = client.post(
-            "/api/v1/pecas/",
-            json={
-                "nome": "Peça Crítica",
-                "preco": 10.0,
-                "quantidade_estoque": 5,
-                "estoque_minimo": 10,
-            },
-            headers=auth_headers,
-        )
-        peca_id = create_resp.json()["id"]
-        response = client.patch(
-            f"/api/v1/pecas/{peca_id}/quantidade",
-            json={"quantidade_entrada": 1},
-            headers=auth_headers,
-        )
-        assert response.status_code == 200
-        # estoque=6, estoque_minimo=10 → disponivel=6 ≤ 10 → alert emitted
-        calls = [str(c) for c in mock_pub.call_args_list]
-        assert any("AlertaDeEstoqueEmitido" in c for c in calls)
-
-    def test_ajustar_quantidade_invalida(self, client, auth_headers, peca_data):
-        create_resp = client.post(
-            "/api/v1/pecas/", json=peca_data, headers=auth_headers
-        )
-        peca_id = create_resp.json()["id"]
-        response = client.patch(
-            f"/api/v1/pecas/{peca_id}/quantidade",
-            json={"quantidade_entrada": 0},
-            headers=auth_headers,
-        )
-        assert response.status_code == 422
-
-    @patch("app.services.peca_service.publicar_notificacao")
-    def test_criar_peca_eventos_publicados(self, mock_pub, client, auth_headers):
-        response = client.post(
-            "/api/v1/pecas/",
-            json={"nome": "Peça Teste", "preco": 20.0, "quantidade_estoque": 15},
-            headers=auth_headers,
-        )
-        assert response.status_code == 201
-        event_names = [c.args[0] for c in mock_pub.call_args_list]
-        assert "PecaCadastrada" in event_names
-        assert "EstoqueReposto" in event_names
-
-    @patch("app.services.peca_service.publicar_notificacao")
-    def test_criar_peca_sem_estoque_inicial(self, mock_pub, client, auth_headers):
-        response = client.post(
-            "/api/v1/pecas/",
-            json={"nome": "Peça Zerada", "preco": 5.0, "quantidade_estoque": 0},
-            headers=auth_headers,
-        )
-        assert response.status_code == 201
-        event_names = [c.args[0] for c in mock_pub.call_args_list]
-        assert "PecaCadastrada" in event_names
-        assert "EstoqueReposto" not in event_names
+        assert response.status_code in (404, 405)
 
 
 class TestServicosAPIEdgeCases:

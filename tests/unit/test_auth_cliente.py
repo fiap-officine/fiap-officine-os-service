@@ -1,14 +1,15 @@
 import pytest
 from fastapi import HTTPException
+
+from app.api.deps import get_current_cliente
 from app.domain.entities.cliente import Cliente
 from app.repositories.cliente_repository import ClienteRepository
 from app.schemas.cliente import ClienteLoginRequest
-from app.services.cliente_service import consultar_existencia_e_status_cliente
 from app.services.auth_service import (
     autenticar_cliente_por_cpf,
     decode_access_token,
 )
-from app.api.deps import get_current_cliente
+from app.services.cliente_service import consultar_existencia_e_status_cliente
 
 
 class TestAuthClienteUnit:
@@ -114,16 +115,20 @@ class TestAuthClienteUnit:
         assert "inativo" in exc.value.detail.lower()
 
     def test_autenticar_cliente_via_lambda_sucesso(self, db_session, monkeypatch):
-        import io
-        from unittest.mock import MagicMock
         import urllib.request
+        from unittest.mock import MagicMock
+
         from app.config import get_settings
 
         settings = get_settings()
-        monkeypatch.setattr(settings, "AUTH_LAMBDA_URL", "https://api.gateway/auth/login")
+        monkeypatch.setattr(
+            settings, "AUTH_LAMBDA_URL", "https://api.gateway/auth/login"
+        )
 
         mock_resp = MagicMock()
-        mock_resp.read.return_value = b'{"access_token": "token-da-lambda-xyz", "token_type": "bearer"}'
+        mock_resp.read.return_value = (
+            b'{"access_token": "token-da-lambda-xyz", "token_type": "bearer"}'
+        )
         mock_resp.__enter__.return_value = mock_resp
         mock_resp.__exit__.return_value = None
 
@@ -135,12 +140,15 @@ class TestAuthClienteUnit:
 
     def test_autenticar_cliente_via_lambda_erro_http(self, db_session, monkeypatch):
         import io
-        from urllib.error import HTTPError
         import urllib.request
+        from urllib.error import HTTPError
+
         from app.config import get_settings
 
         settings = get_settings()
-        monkeypatch.setattr(settings, "AUTH_LAMBDA_URL", "https://api.gateway/auth/login")
+        monkeypatch.setattr(
+            settings, "AUTH_LAMBDA_URL", "https://api.gateway/auth/login"
+        )
 
         err_fp = io.BytesIO(b'{"detail": "Cliente inativo no sistema"}')
         http_err = HTTPError("url", 400, "Bad Request", {}, err_fp)
