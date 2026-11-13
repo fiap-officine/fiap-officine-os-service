@@ -191,8 +191,10 @@ uv run pytest tests/bdd  # só a saga em Gherkin
 [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml): lint → testes (gate 80%)
 → SonarCloud (Quality Gate) → build/push no ECR com tag = SHA → bootstrap do
 `os_db` → `kustomize edit set image` + `rollout status` → smoke test.
-`develop` publica em homolog e `main` em produção. A `main` é protegida
-(PR + checks `test` e `quality` obrigatórios).
+Ambiente único **homolog** (projeto acadêmico): o push em `develop` ou em `main`
+publica no cluster K3s de homolog. A `main` é protegida (PR + checks `test` e
+`quality` obrigatórios). Para um ambiente de produção, basta criar um overlay
+`k8s/overlays/production` e um `infra/env/production.tfvars` e apontar o job.
 
 [.github/workflows/infra.yml](.github/workflows/infra.yml): Terraform de
 [infra/](infra/) (fila `os-saga-replies` + DLQ, política IAM) — `plan` no PR,
@@ -200,7 +202,7 @@ uv run pytest tests/bdd  # só a saga em Gherkin
 
 ### Secrets e variáveis dos pipelines
 
-Configurar por *environment* do GitHub (`homolog` e `production`):
+Configurar como secrets do repositório (ou do *environment* `homolog`):
 
 | Nome | os-service | billing-service | execution-service | lambda |
 |---|---|---|---|---|
