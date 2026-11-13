@@ -19,8 +19,19 @@ microsserviços.
 ## 2. Logs estruturados
 
 Todos os logs (JSON, stdout) carregam `correlation_id`, `saga_id`, `os_id`,
-`message_id`, `message_type` e `trace_id`/`span_id` (logs in context). Filtro no
-New Relic Logs: `saga_id:"<uuid>"` mostra a saga inteira nos três serviços.
+`message_id`, `message_type` e `trace_id`/`span_id` (logs in context).
+
+O agente encaminha os logs ao New Relic com
+`application_logging.forwarding.context_data.enabled = true` e uma *record
+factory* ([app/core/logging.py](../app/core/logging.py)) copia `saga_id`, `os_id`
+e `correlation_id` do contexto para cada registro. No New Relic Logs:
+
+```
+context.saga_id:"<uuid da saga>"
+```
+
+mostra a saga inteira nos três serviços (o `saga_id` está em
+`GET /api/v1/ordens-servico/{id}/saga`).
 
 ## 3. Eventos customizados
 
@@ -30,36 +41,44 @@ New Relic Logs: `saga_id:"<uuid>"` mostra a saga inteira nos três serviços.
 | `SagaCompensationEvent` | `saga_id, os_id, from_state, reason, compensations` | início da compensação |
 | `SagaFailedEvent` | `saga_id, os_id, pending` | compensação esgotou as tentativas |
 | `OrdemServicoEvent` | `action, os_id, status, valor_total` | OS criada/entregue |
+| `OrcamentoEvent` (Billing) | `action, orcamento_id` | orçamento gerado/aprovado/recusado |
+| `PagamentoEvent` (Billing) | `action, pagamento_id` | pagamento aprovado/recusado/estornado/estorno automático |
+| `WebhookRejected` (Billing) | `reason, data_id` | notificação do Mercado Pago com assinatura inválida |
+| `ExecucaoEvent` (Execution) | `action, os_id` | OS agendada, reserva liberada, diagnóstico/reparo/finalização |
 | `MessageProcessingFailure` | `queue, error` | erro no consumer (mensagem volta para retry/DLQ) |
+| `MessageRejected` | `reason` | mensagem inválida (fora do contrato) |
 
-## 4. Dashboard "Saga de OS" (NRQL)
+## 4. Dashboard e alertas como código
 
-```sql
--- Sagas por estado final
-SELECT count(*) FROM SagaStepEvent WHERE step IN ('COMPLETED','CANCELLED','FAILED') FACET step SINCE 1 day ago
+[observability/newrelic/](../observability/newrelic/) (Terraform, provider
+`newrelic/newrelic`) cria:
 
--- Tempo médio em cada passo (segundos)
-SELECT average(duration_ms)/1000 AS 'seg' FROM SagaStepEvent FACET previous_step SINCE 1 day ago
+- **Dashboard "fiap-officine — Saga de OS"**, com duas páginas:
+  - *Saga*: sagas iniciadas/concluídas/canceladas/falhas, estado final, funil,
+    tempo médio por passo, transições ao longo do tempo, compensações por
+    motivo, últimas compensações e sagas em `FAILED`.
+  - *Serviços*: throughput, latência p95 e taxa de erro por serviço, falhas de
+    processamento de mensagens, pagamentos, webhooks rejeitados e mensagens
+    nas DLQs.
+- **Política de alertas "fiap-officine — Saga de OS"**:
 
--- Compensações por motivo
-SELECT count(*) FROM SagaCompensationEvent FACET reason SINCE 7 days ago
+| Alerta | Condição (NRQL) | Severidade |
+|---|---|---|
+| Saga falhou | `count(*) FROM SagaFailedEvent` > 0 | crítico |
+| Mensagens na DLQ | `max(aws.sqs.ApproximateNumberOfMessagesVisible)` em `*-dlq` > 0 por 5 min | crítico |
+| Falhas no processamento de mensagens | `count(*) FROM MessageProcessingFailure` > 5 em 5 min | aviso |
+| Latência p95 alta | `percentile(duration, 95)` por serviço > 1 s por 5 min | crítico |
+| Taxa de erro | `percentage(count(*), WHERE error IS true)` por serviço > 5% por 5 min | crítico |
+| Webhook Mercado Pago rejeitado | `count(*) FROM WebhookRejected` > 0 | aviso |
 
--- Funil da saga
-SELECT funnel(saga_id, WHERE step='BUDGET_PENDING' AS 'Orçamento', WHERE step='PAYMENT_PENDING' AS 'Aprovado', WHERE step='IN_EXECUTION' AS 'Pago e agendado', WHERE step='COMPLETED' AS 'Concluído') FROM SagaStepEvent SINCE 7 days ago
+Aplicar (uma vez, com uma User API key):
 
--- Taxa de erro e p95 por serviço
-SELECT percentage(count(*), WHERE error IS true) AS 'erro %', percentile(duration, 95) FROM Transaction WHERE appName LIKE 'officine-%' FACET appName TIMESERIES
-
--- Mensagens nas DLQs (integração CloudWatch -> New Relic)
-SELECT latest(aws.sqs.ApproximateNumberOfMessagesVisible) FROM QueueSample WHERE aws.sqs.QueueName LIKE '%-dlq' FACET aws.sqs.QueueName
+```bash
+cd observability/newrelic
+terraform init
+terraform apply -var="account_id=<id da conta>" -var="api_key=<NRAK-...>"                 -var="alert_email=<e-mail do grupo>"   # opcional
 ```
 
-## 5. Alertas
-
-| Alerta | Condição |
-|---|---|
-| DLQ com mensagens | `ApproximateNumberOfMessagesVisible > 0` em qualquer `*-dlq` por 5 min |
-| Saga falhou | `SELECT count(*) FROM SagaFailedEvent` > 0 |
-| Latência | p95 de `Transaction` por `appName` > 1s por 5 min |
-| Webhook Mercado Pago | `Transaction` em `/api/v1/pagamentos/webhook` com `httpResponseCode = 401` > 0 |
-| Outbox acumulando | `/health` → `services.outbox.pending` > 50 (synthetic monitor) |
+Os gráficos e o alerta de DLQ dependem da **integração AWS → New Relic**
+(CloudWatch Metric Streams ou polling da integração SQS/DynamoDB), configurada
+no painel do New Relic em *Infrastructure → AWS*.

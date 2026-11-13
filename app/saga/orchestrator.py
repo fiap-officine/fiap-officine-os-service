@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.core.logging import os_id_ctx, saga_id_ctx
 from app.domain.entities.ordem_servico import OrdemServico, OrdemServicoHistorico
 from app.domain.entities.saga import SagaInstance, SagaLog
 from app.domain.enums import (
@@ -110,6 +111,9 @@ class SagaOrchestrator:
         )
         self.db.add(saga)
         self.db.flush()
+        # Logs da requisição que abriu a OS já saem com saga_id/os_id
+        saga_id_ctx.set(saga.id)
+        os_id_ctx.set(ordem.id)
         self._log(saga, "T1", "forward", None, None, "OS criada")
 
         payload = {
