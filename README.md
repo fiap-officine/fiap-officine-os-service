@@ -210,8 +210,8 @@ Configurar como secrets do repositório (ou do *environment* `homolog`):
 | `SONAR_TOKEN` | ✔ | ✔ | ✔ | ✔ |
 | `KUBE_CONFIG_DATA` (kubeconfig em base64) | ✔ | ✔ | ✔ | |
 | `JWT_SECRET_KEY` (o mesmo em todos) | ✔ | ✔ | ✔ | ✔ |
-| `DB_USER` / `DB_PASSWORD` (usuário do banco lógico do serviço) | ✔ | ✔ | | |
-| `DB_ADMIN_USER` / `DB_ADMIN_PASSWORD` / `DB_ADMIN_DB` (master do RDS) | ✔ | ✔ | | |
+| `DB_USER` / `DB_PASSWORD` (usuário do banco lógico do serviço; no environment `homolog`) | ✔ | ✔ | | |
+| `DB_ADMIN_USER` / `DB_ADMIN_PASSWORD` (master do RDS; `DB_ADMIN_DB` opcional, padrão `postgres`) | ✔ | ✔ | | |
 | `INTERNAL_API_TOKEN` | ✔ | | | ✔ |
 | `MP_ACCESS_TOKEN` / `MP_WEBHOOK_SECRET` | | ✔ | | |
 | `NEW_RELIC_LICENSE_KEY` | ✔ | ✔ | ✔ | |
