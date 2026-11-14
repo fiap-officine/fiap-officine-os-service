@@ -12,8 +12,8 @@ configMapGenerator:
       # Preenchido pelo pipeline com o endpoint do RDS publicado no SSM
       - DB_HOST=definido-pelo-pipeline
       - SQS_QUEUE_PREFIX=fiap-officine-homolog
-      # Prazo curto para demonstrar o timeout/compensação no vídeo
-      - SAGA_PAYMENT_TIMEOUT_SECONDS=120
+      # 5 min: tempo para pagar no checkout do sandbox e ainda demonstrar o timeout
+      - SAGA_PAYMENT_TIMEOUT_SECONDS=300
 
 # A imagem (ECR + tag = SHA do commit) é definida pelo pipeline:
 #   kustomize edit set image os-service=<registry>/fiap-officine-os-service:<sha>
