@@ -192,8 +192,8 @@ uv run pytest tests/bdd  # só a saga em Gherkin
 [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml): lint → testes (gate 80%)
 → SonarCloud (Quality Gate) → build/push no ECR com tag = SHA → bootstrap do
 `os_db` → `kustomize edit set image` + `rollout status` → smoke test.
-Ambiente único **homolog** (projeto acadêmico): o push em `develop` ou em `main`
-publica no cluster K3s de homolog. A `main` é protegida (PR + checks `test` e
+Ambiente único **homolog** (projeto acadêmico): o merge em `develop` publica no
+cluster K3s; a `main` recebe PRs vindos de `develop` (marco de versão). A `main` é protegida (PR + checks `test` e
 `quality` obrigatórios). Para um ambiente de produção, basta criar um overlay
 `k8s/overlays/production` e um `infra/env/production.tfvars` e apontar o job.
 
