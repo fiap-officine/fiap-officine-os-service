@@ -202,21 +202,25 @@ publica no cluster K3s de homolog. A `main` é protegida (PR + checks `test` e
 
 ### Secrets e variáveis dos pipelines
 
-Configurar como secrets do repositório (ou do *environment* `homolog`):
+Configurar como secrets da organização (ou do repositório/*environment* `homolog`).
+Kubeconfig, endpoint e master do RDS, URL do API Gateway e role do nó são lidos do
+**SSM Parameter Store** (`/fiap-officine/homolog/...`), publicados pelos repositórios
+`fiap-officine-kubernets` e `fiap-officine-database`; os itens marcados como opcionais
+só são usados se o parâmetro não existir.
 
 | Nome | os-service | billing-service | execution-service | lambda |
 |---|---|---|---|---|
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (`AWS_SESSION_TOKEN` se Learner Lab) | ✔ | ✔ | ✔ | ✔ |
 | `SONAR_TOKEN` | ✔ | ✔ | ✔ | ✔ |
-| `KUBE_CONFIG_DATA` (kubeconfig em base64) | ✔ | ✔ | ✔ | |
+| `KUBE_CONFIG_DATA` (opcional: o nó K3s publica o kubeconfig no SSM) | ✔ | ✔ | ✔ | |
 | `JWT_SECRET_KEY` (o mesmo em todos) | ✔ | ✔ | ✔ | ✔ |
 | `DB_USER` / `DB_PASSWORD` (usuário do banco lógico do serviço; no environment `homolog`) | ✔ | ✔ | | |
-| `DB_ADMIN_USER` / `DB_ADMIN_PASSWORD` (master do RDS; `DB_ADMIN_DB` opcional, padrão `postgres`) | ✔ | ✔ | | |
+| `DB_ADMIN_USER` / `DB_ADMIN_PASSWORD` (opcional: o fiap-officine-database publica o master no SSM) | ✔ | ✔ | | |
 | `INTERNAL_API_TOKEN` | ✔ | | | ✔ |
 | `MP_ACCESS_TOKEN` / `MP_WEBHOOK_SECRET` | | ✔ | | |
 | `NEW_RELIC_LICENSE_KEY` | ✔ | ✔ | ✔ | |
-| Variável `K3S_NODE_ROLE_NAME` (output do fiap-officine-kubernets) | ✔ | ✔ | ✔ | |
-| Variável `OS_SERVICE_URL` (URL do API Gateway) | | | | ✔ |
+| Variável `K3S_NODE_ROLE_NAME` (opcional: lida do SSM) | ✔ | ✔ | ✔ | |
+| Variável `OS_SERVICE_URL` (opcional: lida do SSM) | | | | ✔ |
 
 ## Observabilidade
 

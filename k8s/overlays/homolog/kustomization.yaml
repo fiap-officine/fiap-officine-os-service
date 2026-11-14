@@ -9,7 +9,8 @@ configMapGenerator:
     behavior: merge
     literals:
       - APP_ENV=homolog
-      - DB_HOST=fiap-officine-homolog-rds.chmmasky8j6y.sa-east-1.rds.amazonaws.com
+      # Preenchido pelo pipeline com o endpoint do RDS publicado no SSM
+      - DB_HOST=definido-pelo-pipeline
       - SQS_QUEUE_PREFIX=fiap-officine-homolog
       # Prazo curto para demonstrar o timeout/compensação no vídeo
       - SAGA_PAYMENT_TIMEOUT_SECONDS=120
