@@ -71,13 +71,12 @@ mostra a saga inteira nos três serviços (o `saga_id` está em
 | Taxa de erro | `percentage(count(*), WHERE error IS true)` por serviço > 5% por 5 min | crítico |
 | Webhook Mercado Pago rejeitado | `count(*) FROM WebhookRejected` > 0 | aviso |
 
-Aplicar (uma vez, com uma User API key):
-
-```bash
-cd observability/newrelic
-terraform init
-terraform apply -var="account_id=<id da conta>" -var="api_key=<NRAK-...>"                 -var="alert_email=<e-mail do grupo>"   # opcional
-```
+Aplicação automática pelo workflow
+[.github/workflows/observability.yml](../.github/workflows/observability.yml):
+`plan` no PR e `apply` no merge em `develop` (ou manualmente em *Actions*), com
+state no S3. Precisa do secret `NEW_RELIC_API_KEY` (User key `NRAK-...`) e da
+variável `NEW_RELIC_ACCOUNT_ID`. Para receber os alertas por e-mail, defina
+`TF_VAR_alert_email` no workflow.
 
 Os gráficos e o alerta de DLQ dependem da **integração AWS → New Relic**
 (CloudWatch Metric Streams ou polling da integração SQS/DynamoDB), configurada

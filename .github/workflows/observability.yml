@@ -1,0 +1,59 @@
+name: Observabilidade (New Relic)
+
+# Dashboard "fiap-officine — Saga de OS" e política de alertas como código
+on:
+  pull_request:
+    branches: [main, develop]
+    paths: ["observability/**", ".github/workflows/observability.yml"]
+  push:
+    branches: [develop]
+    paths: ["observability/**", ".github/workflows/observability.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observability-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+
+jobs:
+  newrelic:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability/newrelic
+    env:
+      TF_VAR_api_key: ${{ secrets.NEW_RELIC_API_KEY }}
+      TF_VAR_account_id: ${{ vars.NEW_RELIC_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.9.5
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: terraform fmt -check -recursive
+      - name: Init (state no S3)
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          terraform init -input=false \
+            -backend-config="bucket=fiap-officine-tfstate-${ACCOUNT_ID}" \
+            -backend-config="key=observability/newrelic/terraform.tfstate" \
+            -backend-config="region=$AWS_REGION"
+      - run: terraform validate
+      - name: Plan
+        run: terraform plan -input=false -out=tfplan
+      - name: Apply
+        if: github.event_name != 'pull_request'
+        run: |
+          terraform apply -input=false -auto-approve tfplan
+          terraform output dashboard_url

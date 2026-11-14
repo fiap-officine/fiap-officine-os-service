@@ -3,9 +3,10 @@
 #   - Dashboard "fiap-officine — Saga de OS" (saga + saúde dos 3 serviços)
 #   - Política de alertas com condições NRQL
 #
-# Uso (uma vez, a partir da máquina de quem tem a User API key):
-#   terraform init
-#   terraform apply -var="account_id=<id da conta>" -var="api_key=<NRAK-...>"
+# Aplicado pelo workflow .github/workflows/observability.yml (secret
+# NEW_RELIC_API_KEY e variável NEW_RELIC_ACCOUNT_ID), com state no S3.
+# Uso local: terraform init -backend=false &&
+#   terraform apply -var="account_id=<id>" -var="api_key=<NRAK-...>"
 # Opcional: -var="alert_email=grupo@exemplo.com" para receber os alertas.
 # ──────────────────────────────────────────────
 terraform {
@@ -16,6 +17,11 @@ terraform {
       source  = "newrelic/newrelic"
       version = "~> 3.50"
     }
+  }
+
+  # State no mesmo bucket dos demais Terraform (configuração parcial no init)
+  backend "s3" {
+    encrypt = true
   }
 }
 
