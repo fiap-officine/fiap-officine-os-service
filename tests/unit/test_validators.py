@@ -1,10 +1,10 @@
 from app.domain.validators import (
-    validar_cpf,
-    validar_cnpj,
-    validar_cpf_cnpj,
-    validar_placa,
     formatar_cpf_cnpj,
     formatar_placa,
+    validar_cnpj,
+    validar_cpf,
+    validar_cpf_cnpj,
+    validar_placa,
 )
 
 

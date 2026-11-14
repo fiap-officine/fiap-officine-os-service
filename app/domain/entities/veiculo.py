@@ -1,8 +1,10 @@
-from typing import List, TYPE_CHECKING
 from datetime import datetime
-from sqlalchemy import Integer, String, DateTime, ForeignKey, Boolean, Text
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship, Mapped, mapped_column
+
 from app.infrastructure.database import Base
 
 if TYPE_CHECKING:
@@ -22,10 +24,10 @@ class Veiculo(Base):
     )
     marca: Mapped[str] = mapped_column(String(100), nullable=False)
     modelo: Mapped[str] = mapped_column(String(100), nullable=False)
-    ano: Mapped[int] = mapped_column(Integer, nullable=False)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     cor: Mapped[str] = mapped_column(String(50), nullable=True)
-    ano: Mapped[int] = mapped_column(Integer, nullable=True)
+    # Declarado uma única vez (antes havia duas declarações conflitantes).
+    ano: Mapped[int | None] = mapped_column(Integer, nullable=True)
     observacoes: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -38,6 +40,6 @@ class Veiculo(Base):
     )
 
     cliente: Mapped["Cliente"] = relationship("Cliente", back_populates="veiculos")
-    ordens_servico: Mapped[List["OrdemServico"]] = relationship(
+    ordens_servico: Mapped[list["OrdemServico"]] = relationship(
         "OrdemServico", back_populates="veiculo", lazy="selectin"
     )

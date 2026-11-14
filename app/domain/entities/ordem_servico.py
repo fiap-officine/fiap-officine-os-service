@@ -1,17 +1,20 @@
-from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import Integer, String, Numeric, DateTime, ForeignKey, Enum
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship, Mapped, mapped_column
-from app.infrastructure.database import Base
+
 from app.domain.enums import StatusOrdemServico
+from app.infrastructure.database import Base
 
 if TYPE_CHECKING:
     from .cliente import Cliente
-    from .veiculo import Veiculo
-    from .servico import Servico
     from .peca import Peca
+    from .saga import SagaInstance
+    from .servico import Servico
+    from .veiculo import Veiculo
 
 
 class OrdemServico(Base):
@@ -34,11 +37,10 @@ class OrdemServico(Base):
         nullable=False,
         index=True,
     )
-    observacoes: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
+    observacoes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     valor_total: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), default=0, nullable=False
     )
-    orcamento_aprovado: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -48,10 +50,10 @@ class OrdemServico(Base):
         onupdate=func.now(),
         nullable=False,
     )
-    data_finalizacao: Mapped[Optional[datetime]] = mapped_column(
+    data_finalizacao: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    data_entrega: Mapped[Optional[datetime]] = mapped_column(
+    data_entrega: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -61,23 +63,27 @@ class OrdemServico(Base):
     veiculo: Mapped["Veiculo"] = relationship(
         "Veiculo", back_populates="ordens_servico"
     )
-    itens_servico: Mapped[List["OrdemServicoServico"]] = relationship(
+    itens_servico: Mapped[list["OrdemServicoServico"]] = relationship(
         "OrdemServicoServico",
         back_populates="ordem_servico",
         lazy="selectin",
         cascade="all, delete-orphan",
     )
-    itens_peca: Mapped[List["OrdemServicoPeca"]] = relationship(
+    itens_peca: Mapped[list["OrdemServicoPeca"]] = relationship(
         "OrdemServicoPeca",
         back_populates="ordem_servico",
         lazy="selectin",
         cascade="all, delete-orphan",
     )
-    historico: Mapped[List["OrdemServicoHistorico"]] = relationship(
+    historico: Mapped[list["OrdemServicoHistorico"]] = relationship(
         "OrdemServicoHistorico",
         back_populates="ordem_servico",
         lazy="selectin",
         cascade="all, delete-orphan",
+        order_by="OrdemServicoHistorico.id",
+    )
+    saga: Mapped[Optional["SagaInstance"]] = relationship(
+        "SagaInstance", back_populates="ordem_servico", uselist=False
     )
 
 
@@ -128,9 +134,9 @@ class OrdemServicoHistorico(Base):
     ordem_servico_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("ordens_servico.id"), nullable=False, index=True
     )
-    status_anterior: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    status_anterior: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status_novo: Mapped[str] = mapped_column(String(50), nullable=False)
-    observacao: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    observacao: Mapped[str | None] = mapped_column(String(500), nullable=True)
     data_alteracao: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -1,10 +1,11 @@
 import pytest
 from pydantic import ValidationError
+
 from app.schemas.cliente import ClienteCreate, ClienteUpdate
-from app.schemas.veiculo import VeiculoCreate
+from app.schemas.peca import PecaCreate, PecaUpdate
 from app.schemas.servico import ServicoCreate
-from app.schemas.peca import PecaCreate, PecaUpdate, AjusteEstoqueRequest
 from app.schemas.usuario import UsuarioCreate
+from app.schemas.veiculo import VeiculoCreate
 
 
 class TestClienteSchema:
@@ -74,12 +75,12 @@ class TestServicoSchema:
 
 class TestPecaSchema:
     def test_peca_valida(self):
-        p = PecaCreate(nome="Filtro", preco=35.50, quantidade_estoque=50)
-        assert p.quantidade_estoque == 50
+        p = PecaCreate(nome="Filtro", preco=35.50)
+        assert p.nome == "Filtro"
 
-    def test_peca_estoque_negativo(self):
+    def test_peca_preco_negativo(self):
         with pytest.raises(ValidationError):
-            PecaCreate(nome="Filtro", preco=35.50, quantidade_estoque=-1)
+            PecaCreate(nome="Filtro", preco=-1)
 
 
 class TestUsuarioSchema:
@@ -121,20 +122,13 @@ class TestPecaSchemaCompleto:
             descricao="Filtro de óleo sintético",
             unidade_medida="unidade",
             preco=Decimal("35.50"),
-            quantidade_estoque=50,
-            estoque_minimo=5,
         )
         assert p.codigo == "FLT-001"
         assert p.unidade_medida == "unidade"
-        assert p.estoque_minimo == 5
 
     def test_peca_preco_zero_invalido(self):
         with pytest.raises(ValidationError):
-            PecaCreate(nome="X", preco=0, quantidade_estoque=10)
-
-    def test_peca_estoque_minimo_negativo_invalido(self):
-        with pytest.raises(ValidationError):
-            PecaCreate(nome="X", preco=10, quantidade_estoque=5, estoque_minimo=-1)
+            PecaCreate(nome="X", preco=0)
 
     def test_peca_update_preco_invalido(self):
         from decimal import Decimal
@@ -142,25 +136,9 @@ class TestPecaSchemaCompleto:
         with pytest.raises(ValidationError):
             PecaUpdate(preco=Decimal("-5.00"))
 
-    def test_peca_update_estoque_negativo(self):
-        with pytest.raises(ValidationError):
-            PecaUpdate(quantidade_estoque=-1)
-
-    def test_peca_update_estoque_minimo_negativo(self):
-        with pytest.raises(ValidationError):
-            PecaUpdate(estoque_minimo=-1)
-
-    def test_ajuste_estoque_invalido(self):
-        with pytest.raises(ValidationError):
-            AjusteEstoqueRequest(quantidade_entrada=0)
-
-    def test_ajuste_estoque_negativo(self):
-        with pytest.raises(ValidationError):
-            AjusteEstoqueRequest(quantidade_entrada=-5)
-
-    def test_ajuste_estoque_valido(self):
-        req = AjusteEstoqueRequest(quantidade_entrada=10)
-        assert req.quantidade_entrada == 10
+    def test_peca_update_parcial(self):
+        dump = PecaUpdate(nome="Novo").model_dump(exclude_unset=True)
+        assert dump == {"nome": "Novo"}
 
 
 class TestClienteSchemaComValidacoes:

@@ -1,7 +1,9 @@
-from pydantic import BaseModel, field_validator
-from datetime import datetime
 import re
-from app.domain.validators import validar_cpf_cnpj, formatar_cpf_cnpj
+from datetime import datetime
+
+from pydantic import BaseModel, field_validator
+
+from app.domain.validators import formatar_cpf_cnpj, validar_cpf_cnpj
 
 
 class ClienteBase(BaseModel):

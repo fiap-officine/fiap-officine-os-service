@@ -1,16 +1,20 @@
 from datetime import datetime, timedelta, timezone
-from passlib.context import CryptContext
-from jose import JWTError, jwt
+
 from fastapi import HTTPException, status
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
+
 from app.config import get_settings
 from app.domain.entities.usuario import Usuario
 from app.repositories.usuario_repository import UsuarioRepository
-from app.schemas.usuario import UsuarioCreate
 from app.schemas.token import Token, TokenData
+from app.schemas.usuario import UsuarioCreate
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 settings = get_settings()
+pwd_context = CryptContext(
+    schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=settings.BCRYPT_ROUNDS
+)
 
 
 def hash_password(password: str) -> str:
@@ -52,12 +56,12 @@ def decode_access_token(token: str) -> TokenData:
             role=role,
             cliente_id=cliente_id,
         )
-    except JWTError:
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido ou expirado",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from exc
 
 
 def registrar_usuario(db: Session, dados: UsuarioCreate) -> Usuario:
@@ -107,6 +111,7 @@ def autenticar_cliente_por_cpf(db: Session, cpf: str) -> Token:
         import json
         import urllib.request
         from urllib.error import HTTPError
+
         from app.domain.validators import formatar_cpf_cnpj
 
         cpf_limpo = formatar_cpf_cnpj(cpf)
@@ -136,7 +141,7 @@ def autenticar_cliente_por_cpf(db: Session, cpf: str) -> Token:
                 )
             except Exception:
                 detail = "Erro de autenticação na Function Serverless"
-            raise HTTPException(status_code=e.code, detail=detail)
+            raise HTTPException(status_code=e.code, detail=detail) from e
         except Exception:
             # Fallback para processamento local caso a Lambda não responda
             pass

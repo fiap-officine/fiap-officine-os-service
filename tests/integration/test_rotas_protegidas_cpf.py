@@ -1,7 +1,3 @@
-from unittest.mock import patch
-import pytest
-
-
 class TestRotasProtegidasCpfIntegration:
     def _criar_cliente(
         self, client, auth_headers, cpf="529.982.247-25", nome="Cliente Teste"
@@ -83,9 +79,8 @@ class TestRotasProtegidasCpfIntegration:
         assert resp_cli_me.status_code == 200
         assert resp_cli_me.json()["id"] == cliente["id"]
 
-    @patch("app.services.ordem_servico_service.publicar_notificacao")
     def test_acompanhar_os_cliente_autenticado_vs_outro_cliente(
-        self, mock_redis, client, auth_headers
+        self, client, auth_headers
     ):
         # Cliente 1
         cli1 = self._criar_cliente(

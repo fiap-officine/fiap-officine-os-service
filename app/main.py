@@ -1,16 +1,20 @@
-import os
 import logging
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.router import router
+
 from app.api.v1.health import router as health_router
+from app.api.v1.internal import router as internal_router
+from app.api.v1.router import router
 from app.config import get_settings
 from app.core.logging import setup_json_logging
 from app.core.middleware import ObservabilityMiddleware
 
 settings = get_settings()
 
-# ── Configuração de Logs Estruturados em JSON ──
+# ── Logs estruturados em JSON ───────────────────
 setup_json_logging(
     service_name=settings.NEW_RELIC_APP_NAME,
     environment=settings.APP_ENV,
@@ -18,34 +22,49 @@ setup_json_logging(
 )
 logger = logging.getLogger("app.main")
 
-# ── Inicialização do APM New Relic ──────────────
+# ── APM New Relic ───────────────────────────────
 if settings.NEW_RELIC_LICENSE_KEY or os.getenv("NEW_RELIC_LICENSE_KEY"):
     try:
         import newrelic.agent
-        # Configurações de ambiente caso não venha de newrelic.ini
+
         os.environ.setdefault("NEW_RELIC_APP_NAME", settings.NEW_RELIC_APP_NAME)
         os.environ.setdefault("NEW_RELIC_DISTRIBUTED_TRACING_ENABLED", "true")
         os.environ.setdefault("NEW_RELIC_LOG_LEVEL", "info")
         newrelic.agent.initialize()
         logger.info("Agente APM New Relic inicializado com sucesso.")
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover
         logger.warning(f"Não foi possível inicializar o New Relic: {exc}")
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    workers = None
+    if settings.RUN_WORKERS:
+        from app.workers import BackgroundWorkers
+
+        workers = BackgroundWorkers(settings)
+        workers.start()
+        logger.info("Workers da saga iniciados no processo da API")
+    yield
+    if workers is not None:
+        workers.stop()
+
+
 app = FastAPI(
-    title="Oficina Mecânica - Sistema de Gestão",
+    title="Oficina Mecânica - OS Service",
     description=(
-        "API RESTful para gestão de ordens de serviço, clientes, veículos, "
-        "serviços e peças de uma oficina mecânica. "
-        "Desenvolvido para o Tech Challenge FIAP (15SOAT)."
+        "Microsserviço de Ordens de Serviço (clientes, veículos, catálogo, OS) e "
+        "**orquestrador da Saga** da OS: orçamento (Billing) -> aprovação -> "
+        "pagamento (Mercado Pago) -> reserva/execução (Execution), com "
+        "compensações. Tech Challenge FIAP SOAT - Fase 4."
     ),
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
-# ── Middlewares ─────────────────────────────────
 app.add_middleware(ObservabilityMiddleware)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.APP_ENV == "development" else [],
@@ -54,13 +73,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Roteadores ──────────────────────────────────
 app.include_router(health_router)
+app.include_router(internal_router)
 app.include_router(router)
 
 
 @app.get("/", tags=["Health"])
 def root_check():
-    """Verifica se a API está no ar."""
-    return {"status": "ok", "service": "Oficina Mecânica API", "version": "1.0.0"}
-
+    """Verifica se o serviço está no ar."""
+    return {"status": "ok", "service": settings.SERVICE_NAME, "version": "2.0.0"}

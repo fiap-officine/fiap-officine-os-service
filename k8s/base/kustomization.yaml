@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: officine
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - ingress.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: fiap-officine
+    includeSelectors: false
+
+# Valores não sensíveis. Segredos (os-service-secrets) são criados no pipeline
+# a partir de GitHub Secrets e nunca versionados.
+configMapGenerator:
+  - name: os-service-config
+    literals:
+      - SERVICE_NAME=os-service
+      - NEW_RELIC_APP_NAME=officine-os-service
+      - NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true
+      - DB_PORT=5432
+      - DB_NAME=os_db
+      - AWS_REGION=us-east-2
+      - RUN_WORKERS=true
+      - LOG_LEVEL=INFO
+      - JWT_ALGORITHM=HS256
+      - SAGA_APPROVAL_TIMEOUT_SECONDS=172800
+      - SAGA_PAYMENT_TIMEOUT_SECONDS=1800
+
+images:
+  - name: os-service
+    newName: os-service
+    newTag: latest

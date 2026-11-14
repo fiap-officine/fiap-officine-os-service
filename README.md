@@ -1,220 +1,239 @@
-# 🚗 fiap-officine-api — API Principal & Worker de Gestão de Ordens de Serviço
+# fiap-officine-os-service
 
-**Tech Challenge FIAP (15SOAT)**  
-Repositório oficial do microsserviço principal do ecossistema **fiap-officine**, responsável por toda a lógica de negócio, gestão de clientes, veículos, peças, serviços, fluxo de transição de ordens de serviço e observabilidade em tempo real.
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=fiap-officine_fiap-officine-os-service&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=fiap-officine_fiap-officine-os-service)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=fiap-officine_fiap-officine-os-service&metric=coverage)](https://sonarcloud.io/summary/new_code?id=fiap-officine_fiap-officine-os-service)
 
----
+Microsserviço de **Ordens de Serviço** da oficina e **orquestrador da Saga** da
+OS. Tech Challenge SOAT — Fase 4.
 
-## 🎯 Propósito do Repositório
+| | |
+|---|---|
+| Responsabilidades | Clientes, veículos, catálogo (serviços e peças: nome/preço), abertura e acompanhamento de OS, histórico, **orquestração da saga**, entrega do veículo, login admin |
+| Banco | PostgreSQL `os_db` (RDS compartilhado, banco lógico e usuário próprios) |
+| Mensageria | Amazon SQS — publica em `billing-commands` / `execution-commands`, consome `os-saga-replies` |
+| Outros serviços | [billing-service](https://github.com/fiap-officine/fiap-officine-billing-service) (orçamento, Mercado Pago) · [execution-service](https://github.com/fiap-officine/fiap-officine-execution-service) (estoque, fila de execução, DynamoDB) |
 
-O **fiap-officine-api** implementa o núcleo da oficina mecânica sob os princípios do **Domain-Driven Design (DDD)** e **Clean Architecture**:
-* **Gestão e Acompanhamento de Ordens de Serviço (OS)**: Criação de ordens com identificação de cliente (CPF), cálculo automático de orçamento (peças + mão de obra), máquina de estados com transições estritas (`Recebida → Diagnóstico → Aguardando Aprovação → Execução → Finalizada → Entregue`).
-* **Proteção de Dados e Rotas Sensíveis por CPF**: Apenas o cliente titular autenticado via token JWT tem acesso às suas ordens de serviço e veículos cadastrados.
-* **Mensageria Assíncrona e Webhooks**: Notificação assíncrona de eventos via fila Redis para workers desacoplados, além de webhooks de aprovação de orçamento e atualização via e-mail.
-* **Observabilidade e Monitoramento Completo (New Relic)**:
-  - Instrumentação nativa via APM New Relic.
-  - Logs estruturados em formato JSON com propagação de `X-Correlation-ID` e `X-Request-ID`.
-  - Healthchecks de liveness e readiness (`/health` e `/api/v1/health`) avaliando PostgreSQL e Redis com métricas de latência.
-  - Emissão de eventos customizados (`OrdemServicoEvent`, `OrdemServicoProcessingFailure`, `WorkerProcessingFailure`) para cálculo de tempo médio por status, volume diário e alertas de falhas.
-
----
-
-## 🏗️ Diagrama da Arquitetura do Repositório
+## Arquitetura
 
 ```mermaid
-graph TB
-    subgraph INGRESS_LAYER["Camada de Borda & Ingress"]
-        APIGW["AWS API Gateway HTTP v2\n(kai652jumh.execute-api.sa-east-1.amazonaws.com)"]
-        TRAEFIK["Traefik Ingress Controller\n(Porta 80 / NodePort)"]
+flowchart LR
+    APIGW[API Gateway + Lambda Authorizer] --> OS
+    subgraph OS[os-service]
+      API[FastAPI] --> DB[(os_db)]
+      ORQ[Orquestrador da saga] --> DB
+      RELAY[Outbox relay] --> DB
+      SWEEP[Varredor de timeouts] --> DB
     end
-
-    subgraph APP_CONTAINER["Pod: fiap-officine-api (FastAPI)"]
-        direction TB
-        MW["Observability Middleware\n(Correlation ID, Latência, Headers)"]
-        ROUTERS["API Routers (v1)\n• /auth • /clientes • /veiculos\n• /ordens-servico • /pecas • /health"]
-        SERVICES["Domain Services\n• OrdemServicoService • ClienteService\n• OrcamentoService"]
-        REPOS["SQLAlchemy Repositories\n(PostgreSQL ORM)"]
-        NR_AGENT["New Relic Python Agent\n(APM & Distributed Tracing)"]
-    end
-
-    subgraph WORKER_CONTAINER["Pod: fiap-officine-worker"]
-        WORKER["Worker Assíncrono\n(Processamento de Notificações)"]
-    end
-
-    subgraph PERSISTENCE["Armazenamento & Filas"]
-        RDS[("AWS RDS PostgreSQL 16.9\n(fiap-officine-database)")]
-        REDIS[("Redis 7 (Cluster K8s)\nFila de Notificações")]
-    end
-
-    subgraph OBSERVABILITY["Observabilidade Externa"]
-        NEW_RELIC["New Relic One\n(Dashboards, Logs & Alertas)"]
-    end
-
-    APIGW -->|"HTTP Proxy"| TRAEFIK
-    TRAEFIK -->|"Porta 8000"| MW
-    MW --> ROUTERS
-    ROUTERS --> SERVICES
-    SERVICES --> REPOS
-    SERVICES -.->|"Publica Eventos"| REDIS
-    SERVICES -.->|"Custom Metrics"| NR_AGENT
-    REPOS -->|"psycopg 3 (Porta 5432)"| RDS
-    REDIS -->|"Consome Fila"| WORKER
-    NR_AGENT -->|"Logs JSON, Spans & NRQL"| NEW_RELIC
+    RELAY -- comandos --> QB[[billing-commands]] --> BILL[billing-service]
+    RELAY -- comandos --> QE[[execution-commands]] --> EXE[execution-service]
+    BILL -- respostas --> QR[[os-saga-replies]]
+    EXE -- respostas --> QR
+    QR --> ORQ
+    LAMBDA[Lambda auth CPF] -- GET /internal/clientes/status --> API
 ```
 
----
+Consumer, outbox relay e varredor rodam como threads no mesmo processo da API
+(`RUN_WORKERS=true`) para caber no nó K3s t3.micro; podem rodar separados com
+`python -m app.worker`.
 
-## 🚀 Tecnologias Utilizadas
+## Saga Pattern — escolha e justificativa
 
-| Categoria | Tecnologia | Justificativa / Uso |
-| :--- | :--- | :--- |
-| **Linguagem** | **Python 3.12** | Tipagem estática avançada, alta performance e sintaxe moderna |
-| **Framework Web** | **FastAPI 0.115+** | Alta performance assíncrona, validação Pydantic v2 e Swagger nativo |
-| **Gerenciador de Pacotes** | **uv** | Resolução determinística e ultra-rápida de dependências |
-| **Acesso a Dados (ORM)** | **SQLAlchemy 2.0** | Padrão Repository, queries tipadas e migrações estruturadas |
-| **Driver PostgreSQL** | **psycopg 3 (`psycopg[binary]`)** | Driver C moderno, alta performance e suporte total ao PostgreSQL 16 |
-| **Banco de Dados** | **PostgreSQL 16.9** | ACID compliance, integridade referencial para estoque e orçamentos |
-| **Fila & Cache** | **Redis 7** | Mensageria assíncrona para workers de notificação de OS |
-| **Observabilidade (APM)** | **New Relic Python Agent (v13.5)** | Tracing distribuído, alertas em tempo real e dashboards NRQL |
-| **Logs Estruturados** | **JSONLogFormatter** | Logs JSON com `correlation_id`, `trace_id` e `duration_ms` |
-| **Containerização** | **Docker** | Build multi-stage, usuário não-root por segurança |
-| **Orquestração** | **Kubernetes (K3s / EKS)** | Deployment, Service, HPA, Ingress e ConfigMaps |
-| **CI/CD** | **GitHub Actions** | Validação, testes automatizados e deploy contínuo |
+Adotamos uma **saga orquestrada**, com o orquestrador dentro do OS Service, porque:
 
----
+1. **O fluxo é linear e tem esperas longas** (aprovação do cliente e confirmação do
+   pagamento). Um orquestrador com estado persistido (`saga_instances`) trata
+   timeouts e retomadas de forma explícita.
+2. **A OS é o agregado dono do processo**: o status da OS, o estado da saga e as
+   mensagens do outbox são gravados na mesma transação.
+3. **Compensações centralizadas e legíveis**: a ordem de rollback está em um único
+   lugar ([app/saga/orchestrator.py](app/saga/orchestrator.py)), em vez de espalhada
+   em handlers de eventos de vários serviços.
+4. **Observabilidade**: `GET /api/v1/ordens-servico/{id}/saga` mostra o passo atual,
+   o prazo, as compensações pendentes e a linha do tempo de comandos/respostas.
+5. **Sem dependências cíclicas**: Billing e Execution não se conhecem; só respondem
+   a comandos.
 
-## 📡 Documentação das APIs (Swagger & Postman)
+**Trade-offs aceitos:** o orquestrador concentra lógica (mitigado por ser stateless,
+com estado no banco e escalável horizontalmente) e o OS Service conhece os
+contratos dos outros serviços.
 
-A documentação interativa e os contratos OpenAPI podem ser consultados diretamente pelos links abaixo:
+### Passos e compensações
 
-* **Swagger UI (Interativo no API Gateway)**:  
-  👉 [https://kai652jumh.execute-api.sa-east-1.amazonaws.com/docs](https://kai652jumh.execute-api.sa-east-1.amazonaws.com/docs)
-* **ReDoc (Documentação Técnica Detalhada)**:  
-  👉 [https://kai652jumh.execute-api.sa-east-1.amazonaws.com/redoc](https://kai652jumh.execute-api.sa-east-1.amazonaws.com/redoc)
-* **Contrato OpenAPI JSON (Postman / Insomnia)**:  
-  👉 [https://kai652jumh.execute-api.sa-east-1.amazonaws.com/openapi.json](https://kai652jumh.execute-api.sa-east-1.amazonaws.com/openapi.json)
-* **Arquivo OpenAPI Local (Versionado)**:  
-  [`docs/openapi.json`](docs/openapi.json) — Importável no Postman (Menu *Import* ➔ Arraste o arquivo `openapi.json`).
+| # | Passo | Comando | Sucesso | Falha | Compensação |
+|---|---|---|---|---|---|
+| T1 | Criar OS (local) | — | — | 4xx | cancelar OS |
+| T2 | Gerar orçamento (Billing) | `GerarOrcamento` | `OrcamentoGerado` | `OrcamentoFalhou` / timeout | `CancelarOrcamento` |
+| T3 | Aprovação do cliente (Billing, REST) | — | `OrcamentoAprovado` | `OrcamentoRecusado` / timeout 48h | — |
+| T4 | Pagamento (Billing + Mercado Pago) | `SolicitarPagamento` | `PagamentoConfirmado` | `PagamentoRecusado` / timeout | `EstornarPagamento` |
+| T5 | Reservar peças + enfileirar (Execution) | `ReservarEEnfileirar` | `ExecucaoAgendada` | `ReservaFalhou` / timeout | `LiberarReserva` |
+| T6 | Diagnóstico → reparo → finalização | — | `DiagnosticoIniciado`, `ReparoIniciado`, `ExecucaoFinalizada` | — | **nenhuma (pivô)** |
 
-### 🔐 Comportamento de Acesso e Códigos de Retorno das Rotas
+As compensações rodam **em ordem inversa e uma por vez** (cada uma espera a
+confirmação do participante): `LiberarReserva → EstornarPagamento →
+CancelarOrcamento → OS cancelada`.
 
-| Tipo de Rota | Endpoints | Autorização | Comportamento e Resposta |
-| :--- | :--- | :--- | :--- |
-| **Públicas** | `/health`, `/docs`, `/openapi.json`, `/redoc` | Nenhuma (`NONE`) | `200 OK` (retorna `503 Service Unavailable` apenas em janelas breves de reinicialização ou cold start do nó EC2 Free Tier) |
-| **Autenticação** | `POST /auth/login` | Nenhuma (Valida CPF) | `200 OK` contendo o `access_token` JWT assinado pela Lambda |
-| **Protegidas** | `/api/v1/ordens-servico/*`, `/api/v1/clientes/*`, etc. | **Bearer JWT Obrigatório** | • **Sem Token ou Inválido**: `401 Unauthorized` (bloqueado pelo **Lambda Authorizer** no API Gateway antes de tocar o cluster)<br>• **Com Token Válido**: `200 OK` / `201 Created` processado pela API |
+| Falha em | Compensações |
+|---|---|
+| T2 | cancelar OS |
+| T3 recusa/timeout | `CancelarOrcamento` → cancelar OS |
+| T4 recusa/timeout | `CancelarOrcamento` → cancelar OS |
+| T5 estoque insuficiente | `EstornarPagamento` → `CancelarOrcamento` → cancelar OS |
+| Cancelamento com OS na fila | `LiberarReserva` → `EstornarPagamento` → `CancelarOrcamento` → cancelar OS |
 
----
+**Pivô:** a partir de `ReparoIniciado` (OS `em_execucao`) a saga não compensa mais
+— peças já foram usadas. Falhas viram recuperação para frente (retry/intervenção
+manual) e `POST /cancelar` responde `409`.
 
-## 🛠️ Como Executar Localmente
+### Máquina de estados
 
-### Pré-requisitos
-* [Python 3.12+](https://www.python.org/)
-* [uv](https://docs.astral.sh/uv/) ou [Docker & Docker Compose](https://www.docker.com/)
+```mermaid
+stateDiagram-v2
+    [*] --> BUDGET_PENDING: OS criada / GerarOrcamento
+    BUDGET_PENDING --> APPROVAL_PENDING: OrcamentoGerado
+    BUDGET_PENDING --> COMPENSATING: OrcamentoFalhou ou timeout
+    APPROVAL_PENDING --> PAYMENT_PENDING: OrcamentoAprovado / SolicitarPagamento
+    APPROVAL_PENDING --> COMPENSATING: OrcamentoRecusado ou timeout
+    PAYMENT_PENDING --> SCHEDULING: PagamentoConfirmado / ReservarEEnfileirar
+    PAYMENT_PENDING --> COMPENSATING: PagamentoRecusado ou timeout
+    SCHEDULING --> IN_EXECUTION: ExecucaoAgendada
+    SCHEDULING --> COMPENSATING: ReservaFalhou ou timeout
+    IN_EXECUTION --> COMPENSATING: cancelamento antes do reparo
+    IN_EXECUTION --> COMPLETED: ExecucaoFinalizada
+    COMPENSATING --> CANCELLED: todas as compensações confirmadas
+    COMPENSATING --> FAILED: compensação esgotou tentativas
+    COMPLETED --> [*]
+    CANCELLED --> [*]
+```
 
-### Opção A: Execução com Docker Compose (Ambiente Completo)
+Status da OS: `recebida → aguardando_orcamento → aguardando_aprovacao →
+aguardando_pagamento → aguardando_execucao → em_diagnostico → em_execucao →
+finalizada → entregue`; antes do pivô, qualquer estado pode ir para
+`em_compensacao → cancelada`.
+
+### Sequência — falha com compensação (estoque insuficiente após pagamento)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OS as OS Service
+    participant B as Billing
+    participant MP as Mercado Pago
+    participant E as Execution
+    OS-)E: ReservarEEnfileirar
+    E-)OS: ReservaFalhou (estoque insuficiente)
+    OS->>OS: saga COMPENSATING · OS em_compensacao
+    OS-)B: EstornarPagamento
+    B->>MP: POST /v1/payments/{id}/refunds
+    B-)OS: PagamentoEstornado
+    OS-)B: CancelarOrcamento
+    B-)OS: OrcamentoCancelado
+    OS->>OS: OS cancelada · saga CANCELLED
+```
+
+### Garantias técnicas
+
+| Garantia | Implementação |
+|---|---|
+| Não perder mensagens | **Transactional Outbox** ([app/messaging/outbox.py](app/messaging/outbox.py)): comando gravado na mesma transação do estado; relay publica e marca `sent` |
+| Duplicatas (SQS at-least-once) | `processed_messages(message_id PK)` na mesma transação do efeito ([app/messaging/consumer.py](app/messaging/consumer.py)) |
+| Mensagens venenosas | Exceção → mensagem volta à fila; após 5 tentativas vai para a DLQ (alerta no New Relic) |
+| Respostas que nunca chegam | `deadline_at` por passo + varredor: dispara compensação; compensação sem resposta é reenviada até `SAGA_COMPENSATION_MAX_ATTEMPTS` e então a saga vai para `FAILED` |
+| Concorrência | `SELECT ... FOR UPDATE` na linha da saga |
+| Eventos fora de ordem | Progresso da execução avança pelos estados intermediários; eventos atrasados não regridem a OS |
+| Respostas tardias | Pagamento confirmado/reserva efetivada depois da compensação geram `EstornarPagamento`/`LiberarReserva` adicionais |
+
+Contratos das mensagens: [docs/contracts](docs/contracts/README.md).
+
+## API
+
+Swagger: `/docs` · OpenAPI exportado: [docs/openapi.json](docs/openapi.json)
+
+| Método | Rota | Descrição |
+|---|---|---|
+| POST | `/api/v1/ordens-servico/` | Abre a OS e inicia a saga |
+| GET | `/api/v1/ordens-servico/{id}` | Detalhe + histórico |
+| GET | `/api/v1/ordens-servico/{id}/saga` | Estado e linha do tempo da saga |
+| POST | `/api/v1/ordens-servico/{id}/cancelar` | Dispara compensações (409 após o pivô) |
+| POST | `/api/v1/ordens-servico/{id}/entregar` | Entrega do veículo (após `finalizada`) |
+| GET | `/api/v1/ordens-servico/minhas-ordens` | OS do cliente autenticado (JWT CPF) |
+| CRUD | `/api/v1/clientes`, `/veiculos`, `/servicos`, `/pecas` | Cadastros (peças = catálogo; estoque no Execution) |
+| GET | `/internal/clientes/status/{cpf}` | Usado pela Lambda (header `x-internal-token`) |
+| GET | `/health` | Banco, SQS e tamanho do outbox |
+
+O fluxo E2E completo está na collection Postman do repositório `fiap-officine-e2e`.
+
+## Rodando localmente
+
 ```bash
-# 1. Clonar o repositório
-git clone https://github.com/fiap-officine/fiap-officine-api.git
-cd fiap-officine-api
-
-# 2. Configurar variáveis de ambiente
-cp .env.example .env
-
-# 3. Subir API, Worker, Redis e PostgreSQL
-docker compose up --build
-```
-Acesse a aplicação em: `http://localhost:8000/docs`
-
----
-
-### Opção B: Execução Local Nativa com `uv`
-```bash
-# 1. Instalar dependências e criar venv
-uv sync
-
-# 2. Executar migrações do banco
-uv run alembic upgrade head
-
-# 3. Iniciar o servidor da API
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 4. Iniciar o worker de notificações (em outro terminal)
-uv run python -m app.worker
+cp .env.example .env            # credenciais locais (o compose lê DB_PASSWORD daqui)
+docker compose up --build        # Postgres + LocalStack (SQS) + os-service
+# http://localhost:8000/docs
 ```
 
----
+Sem Docker: `uv sync && cp .env.example .env && uv run alembic upgrade head && uv run uvicorn app.main:app --reload`.
 
-## 🧪 Execução de Testes Automatizados
-
-A base conta com 183 testes unitários e de integração com cobertura superior a 93%:
+## Testes
 
 ```bash
-# Executar suíte completa de testes com cobertura
-uv run pytest -v --cov=app --cov-report=term-missing
-
-# Executar apenas testes de observabilidade e logs JSON
-uv run pytest tests/unit/test_observability.py -v
+uv run pytest            # unit + integração + BDD, falha abaixo de 80% de cobertura
+uv run pytest tests/bdd  # só a saga em Gherkin
 ```
 
----
+- **BDD** ([tests/bdd/features/saga_ordem_servico.feature](tests/bdd/features/saga_ordem_servico.feature)):
+  roda o orquestrador real e participantes fake de Billing/Execution trocando
+  mensagens pelo SQS (mockado com `moto`). Cenários: fluxo feliz, recusa do
+  orçamento, estoque insuficiente com estorno, timeout de pagamento,
+  cancelamento com OS na fila e mensagem duplicada.
+- **Cobertura atual: 94% (branch coverage, sem exclusões)** — relatório no
+  SonarCloud (badge acima) e em `coverage.xml` gerado pelo CI.
 
-## 🚢 Passos para Deploy
+## CI/CD
 
-### 1. Deploy Automático via CI/CD (GitHub Actions)
-* **Ambiente de Homologação (AWS sa-east-1)**: Disparado automaticamente ao realizar push ou merge na branch `develop`.
-* **Ambiente de Produção**: Disparado automaticamente ao realizar push ou merge na branch `main`.
+[.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml): lint → testes (gate 80%)
+→ SonarCloud (Quality Gate) → build/push no ECR com tag = SHA → bootstrap do
+`os_db` → `kustomize edit set image` + `rollout status` → smoke test.
+Ambiente único **homolog** (projeto acadêmico): o merge em `develop` publica no
+cluster K3s; a `main` recebe PRs vindos de `develop` (marco de versão). A `main` é protegida (PR + checks `test` e
+`quality` obrigatórios). Para um ambiente de produção, basta criar um overlay
+`k8s/overlays/production` e um `infra/env/production.tfvars` e apontar o job.
 
-### 2. Deploy Manual no Cluster Kubernetes
-```bash
-# Aplicar namespace, secrets e configurações
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/secret.yaml
+[.github/workflows/infra.yml](.github/workflows/infra.yml): Terraform de
+[infra/](infra/) (fila `os-saga-replies` + DLQ, política IAM) — `plan` no PR,
+`apply` no push.
 
-# Aplicar Redis e Banco
-kubectl apply -f k8s/redis-deployment.yaml
-kubectl apply -f k8s/redis-svc.yaml
+### Secrets e variáveis dos pipelines
 
-# Aplicar API, Worker, Ingress e HPA
-kubectl apply -f k8s/api-deployment.yaml
-kubectl apply -f k8s/api-svc.yaml
-kubectl apply -f k8s/worker-deployment.yaml
-kubectl apply -f k8s/ingress.yaml
-kubectl apply -f k8s/api-hpa.yaml
+Configurar como secrets da organização (ou do repositório/*environment* `homolog`).
+Kubeconfig, endpoint e master do RDS, URL do API Gateway e role do nó são lidos do
+**SSM Parameter Store** (`/fiap-officine/homolog/...`), publicados pelos repositórios
+`fiap-officine-kubernets` e `fiap-officine-database`; os itens marcados como opcionais
+só são usados se o parâmetro não existir.
 
-# Aplicar DaemonSet de Monitoramento New Relic
-kubectl apply -f k8s/newrelic-infrastructure.yaml
-```
+| Nome | os-service | billing-service | execution-service | lambda |
+|---|---|---|---|---|
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (`AWS_SESSION_TOKEN` se Learner Lab) | ✔ | ✔ | ✔ | ✔ |
+| `SONAR_TOKEN` | ✔ | ✔ | ✔ | ✔ |
+| `KUBE_CONFIG_DATA` (opcional: o nó K3s publica o kubeconfig no SSM) | ✔ | ✔ | ✔ | |
+| `JWT_SECRET_KEY` (o mesmo em todos) | ✔ | ✔ | ✔ | ✔ |
+| `DB_USER` / `DB_PASSWORD` (usuário do banco lógico do serviço; no environment `homolog`) | ✔ | ✔ | | |
+| `DB_ADMIN_USER` / `DB_ADMIN_PASSWORD` (opcional: o fiap-officine-database publica o master no SSM) | ✔ | ✔ | | |
+| `INTERNAL_API_TOKEN` | ✔ | | | ✔ |
+| `MP_ACCESS_TOKEN` / `MP_WEBHOOK_SECRET` | | ✔ | | |
+| `NEW_RELIC_LICENSE_KEY` | ✔ | ✔ | ✔ | |
+| Variável `K3S_NODE_ROLE_NAME` (opcional: lida do SSM) | ✔ | ✔ | ✔ | |
+| Variável `OS_SERVICE_URL` (opcional: lida do SSM) | | | | ✔ |
 
----
+## Observabilidade
 
-## 📊 Observabilidade & Dashboards New Relic
+New Relic APM (`officine-os-service`), logs JSON com `correlation_id`, `saga_id` e
+`os_id`, distributed tracing atravessando o SQS (headers no campo `trace` do
+envelope) e eventos customizados `SagaStepEvent`, `SagaCompensationEvent` e
+`SagaFailedEvent`. Detalhes em [docs/observability.md](docs/observability.md).
 
-A aplicação registra métricas e eventos customizados para alimentar os seguintes dashboards no **New Relic One**:
+## Banco de dados próprio
 
-1. **Volume Diário de Ordens de Serviço**:
-   ```sql
-   SELECT count(*) FROM OrdemServicoEvent WHERE event_type = 'os_created' FACET dateOf(timestamp) SINCE 7 days ago
-   ```
-2. **Tempo Médio de Execução por Status (Diagnóstico, Execução, Finalização)**:
-   ```sql
-   SELECT average(duration_seconds) / 60 AS 'Tempo Médio (min)' FROM OrdemServicoEvent WHERE event_type = 'status_transition' FACET status_target SINCE 7 days ago
-   ```
-3. **Latência de Endpoints (p50, p95, p99)**:
-   ```sql
-   SELECT percentile(duration, 50, 95, 99) FROM Transaction WHERE appName = 'fiap-officine-api' TIMESERIES SINCE 24 hours ago
-   ```
-4. **Falhas de Processamento & Erros em Integrações**:
-   ```sql
-   SELECT count(*) FROM OrdemServicoProcessingFailure, WorkerProcessingFailure FACET error_type, order_id SINCE 24 hours ago
-   ```
-
-Consulte a documentação completa em [docs/observability.md](file:///c:/Users/phpra/projects/fiap-pos/docs/observability.md).
-
----
-
-## 🔒 Governança de Branches
-* `main`: Branch de Produção (Commits diretos bloqueados).
-* `develop`: Branch de Homologação (Deploy contínuo em Homologação).
-* **PR Obrigatório**: Testes e checagens estáticas devem passar compulsoriamente antes de qualquer merge.
+A instância RDS (Free Tier) é compartilhada, mas cada serviço tem **banco lógico e
+usuário próprios, sem GRANT cruzado e com CONNECT revogado de PUBLIC**
+([k8s/jobs/db-bootstrap.yaml](k8s/jobs/db-bootstrap.yaml)). Nenhum serviço acessa o
+banco de outro — inclusive a Lambda de autenticação, que agora consulta
+`/internal/clientes/status/{cpf}`.

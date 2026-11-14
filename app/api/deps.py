@@ -1,12 +1,13 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from app.infrastructure.database import get_db
-from app.services.auth_service import decode_access_token
-from app.repositories.usuario_repository import UsuarioRepository
-from app.repositories.cliente_repository import ClienteRepository
-from app.domain.entities.usuario import Usuario
+
 from app.domain.entities.cliente import Cliente
+from app.domain.entities.usuario import Usuario
+from app.infrastructure.database import get_db
+from app.repositories.cliente_repository import ClienteRepository
+from app.repositories.usuario_repository import UsuarioRepository
+from app.services.auth_service import decode_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -46,7 +47,9 @@ def get_current_cliente(
 ) -> Cliente:
     """Dependency que valida o token JWT do cliente via CPF e retorna o cliente autenticado."""
     token_data = decode_access_token(token)
-    cpf = token_data.cpf or (token_data.username if token_data.role == "cliente" else None)
+    cpf = token_data.cpf or (
+        token_data.username if token_data.role == "cliente" else None
+    )
     if not cpf:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

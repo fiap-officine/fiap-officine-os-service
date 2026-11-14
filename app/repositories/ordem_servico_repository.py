@@ -1,5 +1,6 @@
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, case
+
 from app.domain.entities.ordem_servico import OrdemServico, OrdemServicoHistorico
 from app.domain.enums import StatusOrdemServico
 from app.repositories.base import BaseRepository
@@ -52,20 +53,32 @@ class OrdemServicoRepository(BaseRepository[OrdemServico]):
         if exclude_finalizados:
             stmt = stmt.where(
                 ~OrdemServico.status.in_(
-                    [StatusOrdemServico.FINALIZADA, StatusOrdemServico.ENTREGUE]
+                    [
+                        StatusOrdemServico.FINALIZADA,
+                        StatusOrdemServico.ENTREGUE,
+                        StatusOrdemServico.CANCELADA,
+                    ]
                 )
             )
 
         if order_by_status:
-            # Prioridade: EM_EXECUCAO > AGUARDANDO_APROVACAO > EM_DIAGNOSTICO > RECEBIDA > outros
+            # Prioridade: em execução > diagnóstico > aguardando execução >
+            # pagamento > aprovação > orçamento > recebida > outros
+            prioridades = [
+                StatusOrdemServico.EM_EXECUCAO,
+                StatusOrdemServico.EM_DIAGNOSTICO,
+                StatusOrdemServico.AGUARDANDO_EXECUCAO,
+                StatusOrdemServico.AGUARDANDO_PAGAMENTO,
+                StatusOrdemServico.AGUARDANDO_APROVACAO,
+                StatusOrdemServico.AGUARDANDO_ORCAMENTO,
+                StatusOrdemServico.RECEBIDA,
+            ]
             priority_case = case(
-                (
-                    (OrdemServico.status == StatusOrdemServico.EM_EXECUCAO, 1),
-                    (OrdemServico.status == StatusOrdemServico.AGUARDANDO_APROVACAO, 2),
-                    (OrdemServico.status == StatusOrdemServico.EM_DIAGNOSTICO, 3),
-                    (OrdemServico.status == StatusOrdemServico.RECEBIDA, 4),
-                ),
-                else_=5,
+                *[
+                    (OrdemServico.status == status, idx)
+                    for idx, status in enumerate(prioridades, start=1)
+                ],
+                else_=len(prioridades) + 1,
             )
             stmt = stmt.order_by(priority_case.asc(), OrdemServico.created_at.asc())
         else:

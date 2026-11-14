@@ -1,9 +1,10 @@
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.domain.entities.cliente import Cliente
 from app.domain.entities.ordem_servico import OrdemServico
-from app.domain.enums import StatusOrdemServico
+from app.domain.enums import STATUS_EM_ANDAMENTO
 from app.repositories.cliente_repository import ClienteRepository
 from app.schemas.cliente import ClienteCreate, ClienteUpdate
 
@@ -64,12 +65,7 @@ def desativar_cliente(db: Session, cliente_id: int) -> Cliente:
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente não encontrado")
 
-    status_abertos = [
-        StatusOrdemServico.RECEBIDA,
-        StatusOrdemServico.EM_DIAGNOSTICO,
-        StatusOrdemServico.AGUARDANDO_APROVACAO,
-        StatusOrdemServico.EM_EXECUCAO,
-    ]
+    status_abertos = STATUS_EM_ANDAMENTO
     os_aberta = db.scalars(
         select(OrdemServico)
         .where(

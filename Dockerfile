@@ -1,33 +1,36 @@
-FROM python:3.12-slim
+# ── Stage 1: dependências ───────────────────────
+FROM python:3.12-slim AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
 
 WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-build --no-install-project
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    libpq-dev && \
-    rm -rf /var/lib/apt/lists/*
+COPY . .
+RUN uv sync --frozen --no-dev --no-build
 
-RUN groupadd -r appuser && \
-    useradd -r -g appuser -m appuser && \
-    mkdir -p /home/appuser/venv && \
-    chown -R appuser:appuser /home/appuser /app
+# ── Stage 2: runtime (sem uv, sem toolchain) ─────
+FROM python:3.12-slim
 
-USER appuser
+RUN groupadd -r -g 10001 appuser && useradd -r -u 10001 -g appuser -m appuser
 
-ENV UV_PROJECT_ENVIRONMENT=/home/appuser/venv
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+WORKDIR /app
+COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
+COPY --chown=appuser:appuser app ./app
+COPY --chown=appuser:appuser alembic ./alembic
+COPY --chown=appuser:appuser alembic.ini newrelic.ini ./
 
-RUN uv sync --frozen --no-dev --no-install-project
-
-COPY --chown=appuser:appuser . .
-
-RUN uv sync --frozen --no-dev
-
+# UID numérico: o Kubernetes só valida runAsNonRoot com usuário numérico
+USER 10001:10001
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

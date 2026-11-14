@@ -1,13 +1,15 @@
+from typing import Generic, TypeVar
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
-from typing import TypeVar, Generic, Type
+
 from app.infrastructure.database import Base
 
 T = TypeVar("T", bound=Base)
 
 
 class BaseRepository(Generic[T]):
-    def __init__(self, model: Type[T], db: Session):
+    def __init__(self, model: type[T], db: Session):
         self.model = model
         self.db = db
 

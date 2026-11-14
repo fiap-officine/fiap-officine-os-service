@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from app.infrastructure.database import get_db
-from app.schemas.peca import PecaCreate, PecaUpdate, PecaResponse, AjusteEstoqueRequest
-from app.services import peca_service
+
 from app.api.deps import get_current_user
+from app.infrastructure.database import get_db
+from app.schemas.peca import PecaCreate, PecaResponse, PecaUpdate
+from app.services import peca_service
 
 router = APIRouter(prefix="/pecas", tags=["Peças e Insumos"])
 
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/pecas", tags=["Peças e Insumos"])
     dependencies=[Depends(get_current_user)],
 )
 def criar_peca(dados: PecaCreate, db: Session = Depends(get_db)):
-    """Cadastra uma nova peça ou insumo com controle de estoque."""
+    """Cadastra uma peça no catálogo (o saldo de estoque fica no Execution Service)."""
     return peca_service.criar_peca(db, dados)
 
 
@@ -68,15 +69,3 @@ def desativar_peca(peca_id: int, db: Session = Depends(get_db)):
 def ativar_peca(peca_id: int, db: Session = Depends(get_db)):
     """Ativa uma peça ou insumo."""
     return peca_service.ativar_peca(db, peca_id)
-
-
-@router.patch(
-    "/{peca_id}/quantidade",
-    response_model=PecaResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def repor_estoque(
-    peca_id: int, dados: AjusteEstoqueRequest, db: Session = Depends(get_db)
-):
-    """Repõe o estoque de uma peça (entrada de novas unidades)."""
-    return peca_service.ajustar_quantidade_peca(db, peca_id, dados.quantidade_entrada)
