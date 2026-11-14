@@ -1,8 +1,10 @@
 # Observabilidade distribuída (Fase 4)
 
-Reaproveita a stack da Fase 3 (New Relic APM, logs JSON, correlation-id,
-DaemonSet de infraestrutura) e acrescenta rastreamento da saga entre os três
-microsserviços.
+Reaproveita a stack da Fase 3 (New Relic APM, logs JSON, correlation-id) e acrescenta
+rastreamento da saga entre os três microsserviços. O DaemonSet do agente de
+infraestrutura da Fase 3 não é implantado no cluster da Fase 4: o nó único t3.small
+(2 GiB) fica reservado aos serviços, e o agente exige modo privilegiado e acesso ao
+host. As métricas vêm dos agentes APM em cada serviço e dos eventos da saga.
 
 ## 1. Distributed tracing atravessando o SQS
 
