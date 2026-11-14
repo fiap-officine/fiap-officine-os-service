@@ -528,7 +528,7 @@ wheels = [
 [[package]]
 name = "fiap-officine-os-service"
 version = "2.0.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
     { name = "bcrypt" },

@@ -23,6 +23,8 @@ spec:
         app: os-service
         app.kubernetes.io/name: os-service
     spec:
+      # A aplicação não usa a API do Kubernetes: sem token montado
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       initContainers:
         - name: migrate

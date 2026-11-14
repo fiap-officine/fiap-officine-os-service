@@ -165,6 +165,7 @@ O fluxo E2E completo está na collection Postman do repositório `fiap-officine-
 ## Rodando localmente
 
 ```bash
+cp .env.example .env            # credenciais locais (o compose lê DB_PASSWORD daqui)
 docker compose up --build        # Postgres + LocalStack (SQS) + os-service
 # http://localhost:8000/docs
 ```
