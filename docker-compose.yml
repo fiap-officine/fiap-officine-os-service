@@ -21,14 +21,14 @@ services:
     image: localstack/localstack:3.8
     environment:
       SERVICES: sqs
-      AWS_DEFAULT_REGION: sa-east-1
+      AWS_DEFAULT_REGION: us-east-2
       SQS_QUEUE_PREFIX: fiap-officine
     ports:
       - "4566:4566"
     volumes:
       - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name fiap-officine-os-saga-replies --region sa-east-1"]
+      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name fiap-officine-os-saga-replies --region us-east-2"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -43,7 +43,7 @@ services:
       DB_PASSWORD: os_service
       DB_NAME: os_db
       AWS_ENDPOINT_URL: http://localstack:4566
-      AWS_REGION: sa-east-1
+      AWS_REGION: us-east-2
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       SQS_QUEUE_PREFIX: fiap-officine

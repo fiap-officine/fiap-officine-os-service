@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     SERVICE_NAME: str = "os-service"
 
     # ── Mensageria (Amazon SQS) ──────────────────
-    AWS_REGION: str = "sa-east-1"
+    AWS_REGION: str = "us-east-2"
     # Preenchido apenas em ambiente local (LocalStack): http://localhost:4566
     AWS_ENDPOINT_URL: str | None = None
     SQS_QUEUE_PREFIX: str = "fiap-officine"
